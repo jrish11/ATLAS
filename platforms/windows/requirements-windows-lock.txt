@@ -1,0 +1,7 @@
+# EXPERIMENTAL packaging candidate; not the production requirements.txt.
+# CPython 3.13, Windows x64 wheels verified against PyPI release metadata.
+mss==9.0.2 --hash=sha256:685fa442cc96d8d88b4eb7aadbcccca7b858e789c9259b603e1ef0e435b60425
+pillow==13.0.0 --hash=sha256:9dda0788a9932776a75d8bcc020076edc308ce2508b51f6739a45e3158b3fc42
+psutil==6.1.0 --hash=sha256:a8fb3752b491d246034fa4d279ff076501588ce8cbcdbb62c32fd7a377d996be
+uiautomation==2.0.29 --hash=sha256:5dd51c9e77e70470142a13d903be67f256c445e7cf20b47ada0ece2bdaff9f32
+comtypes==1.4.17 --hash=sha256:4e0a221dde2c589b82977bed802efd71cd5eb67a380347b732e02735e597f586

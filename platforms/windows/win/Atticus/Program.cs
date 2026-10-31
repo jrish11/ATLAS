@@ -25,6 +25,9 @@ static class Program
             Check(Overlay.TranscriptKey("search a b") != Overlay.TranscriptKey("search ab"));
             Check(Speech.Clean(" [BLANK_AUDIO] Open notepad. ") == "Open notepad." && Speech.Clean("Thank you.") == "");
             Check(Hooks.Label(0x20, 3) == "Ctrl+Alt+Space" && Hooks.Label(0x71, 0) == "F2");
+            var bundled = Path.Combine(Paths.App, "runtime", "python.exe");
+            if (!File.Exists(Path.Combine(Paths.App, "atticus.json")))
+                Check(Paths.Python == (File.Exists(bundled) ? bundled : Path.Combine(Paths.Local, "venv", "Scripts", "python.exe")));
             Console.WriteLine("native selftest ok"); return;
         }
         if (args.Length >= 2 && args[0] == "--text") Environment.Exit(WindowText.Run(args[1], args.Length > 2 ? args[2] : ""));

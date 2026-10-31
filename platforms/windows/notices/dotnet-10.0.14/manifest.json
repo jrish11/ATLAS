@@ -1,0 +1,47 @@
+{
+  "ci_run": "https://github.com/jrish11/ATLAS/actions/runs/41233979049",
+  "source_commit": "d4db274c0ea8099e28df9f0670d95ef77f6fd25e",
+  "warning": "Partial evidence, not legal clearance; .NET Windows binaries may have different terms.",
+  "packages": {
+    "microsoft.netcore.app.runtime.win-x64": {
+      "version": "10.0.14",
+      "sha256": "a3ea61b4a2da6d28e562dd1cdacf80eb4dd6b9727b0a2b47f9d6aba90dbbcb1f",
+      "sha512": "mLWGagTP5n7nMfJQI2XpXRYgvPcnyYvAc8ZiDfum8ShM0UcrPDyfW4Lqo45UtlCHCucERUHQuMTI6ybVweCN9A==",
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.10.25.17.31.05/microsoft.netcore.app.runtime.win-x64.10.0.14.json",
+      "package": "https://api.nuget.org/v3-flatcontainer/microsoft.netcore.app.runtime.win-x64/10.0.14/microsoft.netcore.app.runtime.win-x64.10.0.14.nupkg"
+    },
+    "microsoft.windowsdesktop.app.runtime.win-x64": {
+      "version": "10.0.14",
+      "sha256": "a6dba3ca8b8b5b7945399545d881e0ac294746a7571f2209981934d49ecfe8cc",
+      "sha512": "Hxj4llZzFIss9eBt/EKnxessXLi3/wj6Cwrqp2ZL1j74Pmg8VM+IZd9B7bWGt8flKre7z6cJwoRY5YpwJqX44Q==",
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.10.25.17.39.38/microsoft.windowsdesktop.app.runtime.win-x64.10.0.14.json",
+      "package": "https://api.nuget.org/v3-flatcontainer/microsoft.windowsdesktop.app.runtime.win-x64/10.0.14/microsoft.windowsdesktop.app.runtime.win-x64.10.0.14.nupkg"
+    }
+  },
+  "notices": [
+    {
+      "package": "microsoft.netcore.app.runtime.win-x64",
+      "archive_path": "LICENSE.TXT",
+      "file": "NETCore-LICENSE.txt",
+      "sha256": "d7a68596ab69b06f51ca278a6545148e4269a9381c26d597c13df5d88e08cf5b"
+    },
+    {
+      "package": "microsoft.netcore.app.runtime.win-x64",
+      "archive_path": "THIRD-PARTY-NOTICES.TXT",
+      "file": "NETCore-THIRD-PARTY-NOTICES.txt",
+      "sha256": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21"
+    },
+    {
+      "package": "microsoft.windowsdesktop.app.runtime.win-x64",
+      "archive_path": "LICENSE",
+      "file": "WindowsDesktop-LICENSE.txt",
+      "sha256": "a89886665765362eb77e0f8e26602c924520041d1711b2eedc136434fe4d01ab"
+    }
+  ],
+  "additional_license": {
+    "url": "https://dotnet.microsoft.com/dotnet_library_license.htm",
+    "file": "Microsoft-Dotnet-Library-License.html",
+    "sha256": "0f69be2c8ac44c3980047664c3347ff22cba5842dc9d8b0a88a4f0914645a780",
+    "note": "Microsoft classifies coreclr.dll and Microsoft.DiaSymReader.Native.amd64.dll under this license; review terms."
+  }
+}

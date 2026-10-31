@@ -1,0 +1,123 @@
+{
+  "checked_at_utc": "2026-10-31T19:34:45.558558+00:00",
+  "source_index": "https://api.nuget.org/v3/vulnerabilities/index.json",
+  "feeds": [
+    {
+      "@name": "base",
+      "@id": "https://api.nuget.org/v3-vulnerabilities/2026.10.28.05.41.06/vulnerability.base.json",
+      "@updated": "2026-10-28T05:41:06.8059565Z",
+      "comment": "The base data for vulnerability update periodically"
+    },
+    {
+      "@name": "update",
+      "@id": "https://api.nuget.org/v3-vulnerabilities/2026.10.28.05.41.06/2026.10.31.11.41.32/vulnerability.update.json",
+      "@updated": "2026-10-31T11:41:32.1120339Z",
+      "comment": "The patch data for the vulnerability. Contains all the vulnerabilities since base was last updated."
+    }
+  ],
+  "warning": "Snapshot only: matches do not cover other advisory sources, runtime native components or future updates.",
+  "packages": [
+    {
+      "id": "microsoft.windows.sdk.net.ref",
+      "version": "10.0.19041.57",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "microsoft.extensions.ai.abstractions",
+      "version": "10.2.0",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "microsoft.web.webview2",
+      "version": "1.0.4258.31",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "naudio",
+      "version": "3.1.0",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "naudio.asio",
+      "version": "3.1.0",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "naudio.core",
+      "version": "3.1.0",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "naudio.dmo",
+      "version": "3.1.0",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "naudio.midi",
+      "version": "3.1.0",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "naudio.wasapi",
+      "version": "3.1.0",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "naudio.winforms",
+      "version": "3.1.0",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "naudio.winmm",
+      "version": "3.1.0",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "system.numerics.tensors",
+      "version": "9.0.0",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "system.speech",
+      "version": "10.0.12",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "whisper.net",
+      "version": "1.9.1",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "whisper.net.runtime",
+      "version": "1.9.1",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "microsoft.netcore.app.runtime.win-x64",
+      "version": "10.0.14",
+      "matches": [],
+      "needs_manual_range_review": []
+    },
+    {
+      "id": "microsoft.windowsdesktop.app.runtime.win-x64",
+      "version": "10.0.14",
+      "matches": [],
+      "needs_manual_range_review": []
+    }
+  ]
+}

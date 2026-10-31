@@ -222,14 +222,11 @@ sealed class OnboardingWindow : PageWindow
 
     void CheckPlan() => Task.Run(() => { var c = Plan(); Program.Post(() => Js($"ob.plan({c.GetRawText()})")); });
 
-    // The Claude row's button: install Claude Code, sign in, or upgrade, in a terminal window the user can watch.
+    // Open official instructions; installation and sign-in are performed by the user.
     void FixPlan() => Task.Run(() =>
     {
         var need = Plan().TryGetProperty("need", out var n) ? n.GetString() : "";
-        if (need == "upgrade") { Web.Open("https://claude.ai/upgrade"); return; }
-        var cmd = need == "install" ? "irm https://claude.ai/install.ps1 | iex; & \"$env:USERPROFILE\\.local\\bin\\claude.exe\" auth login" : "& claude auth login";
-        Process.Start(new ProcessStartInfo("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -NoExit -Command \"$env:Path = \\\"$env:USERPROFILE\\.local\\bin;$env:Path\\\"; Write-Host 'ATLAS: setting up Claude Code'; {cmd.Replace("\"", "\\\"")}; Write-Host; Write-Host 'Done. You can close this window.'\"") { UseShellExecute = true });
-        Program.Post(CheckPlan);
+        Web.Open(need == "upgrade" ? "https://claude.ai/upgrade" : "https://code.claude.com/docs/en/setup");
     });
 
     public void Tried() => Js("ob.tried()");

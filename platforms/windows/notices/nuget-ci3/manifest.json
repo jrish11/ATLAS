@@ -1,0 +1,242 @@
+{
+  "status": "partial evidence, not release clearance",
+  "ci": "https://github.com/jrish11/ATLAS/actions/runs/41233979049",
+  "packages": [
+    {
+      "id": "microsoft.windows.sdk.net.ref",
+      "version": "10.0.19041.57",
+      "sha512": "TI9FqukRZSFfSZ6fLh0cjO0X0OIAn5vZKGU/iNzINt3IZeK7o9Y1Dmtp+xwEv696XO1cHMB7aUqTjql3/KY9xg==",
+      "license": null,
+      "licenseUrl": "https://aka.ms/WinSDKLicenseURL",
+      "vulnerabilities": [],
+      "notices": [],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2024.11.12.02.18.52/microsoft.windows.sdk.net.ref.10.0.19041.57.json",
+      "extracted": []
+    },
+    {
+      "id": "microsoft.extensions.ai.abstractions",
+      "version": "10.2.0",
+      "sha512": "T8VdQRl1M2TVy+3dUYoZQNL3RrwgGSzTicTVp+64AY5dbWH9k5zeJcxD1FB1YK9FwZfDOvglSQfUSqjRoLoROg==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.01.13.19.21.26/microsoft.extensions.ai.abstractions.10.2.0.json",
+      "extracted": []
+    },
+    {
+      "id": "microsoft.web.webview2",
+      "version": "1.0.4258.31",
+      "sha512": "HlGVwvyP/IWiXAU8K57Vmg59khY3DWMOxMnH4AHusFRy0/vDAjKItXUIVNXiXXaq4CLfSZyNUic1wOIlnPLsPQ==",
+      "license": null,
+      "licenseUrl": "https://aka.ms/deprecateLicenseUrl",
+      "vulnerabilities": [],
+      "notices": [
+        "LICENSE.txt",
+        "NOTICE.txt"
+      ],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.09.28.08.32.55/microsoft.web.webview2.1.0.4258.31.json",
+      "extracted": [
+        {
+          "file": "microsoft.web.webview2-0-LICENSE.txt",
+          "sha256": "0af8f1b807512aae39c2ac1aa4d0cae65cabecb6fd554b8439a5162a0d6eca55",
+          "archive_path": "LICENSE.txt"
+        },
+        {
+          "file": "microsoft.web.webview2-1-NOTICE.txt",
+          "sha256": "106423785c5b7eba0a8e61d1837f2132e9c828e20ad530f565d981c1df60dd90",
+          "archive_path": "NOTICE.txt"
+        }
+      ]
+    },
+    {
+      "id": "naudio",
+      "version": "3.1.0",
+      "sha512": "iN/Yk9Vlv/UPbFzLynuGT4ip0+S/ieDaDmeHLVz+ZZXCxr36+0+UV3SR1d+1A2ikub+0FvB1FXX6waZahYTUHg==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.09.07.07.30.41/naudio.3.1.0.json",
+      "extracted": []
+    },
+    {
+      "id": "naudio.asio",
+      "version": "3.1.0",
+      "sha512": "Za7wsRjK7YPaWcfE2u4lQET7nHoBgXqz1+M06eOung6Wv89X/aML7iRPaKqeogAjUw8fQePjd+nJFvDJz3loFw==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.09.07.07.29.34/naudio.asio.3.1.0.json",
+      "extracted": []
+    },
+    {
+      "id": "naudio.core",
+      "version": "3.1.0",
+      "sha512": "tNmsFdLOUafPLJeg9dTpTsNtzjA4dlrtaRVLfSd+vS2f/PP5tCxTCygipMnBD5k4nyyoUs2tyyh5eCGgkpDy/w==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.09.07.07.30.08/naudio.core.3.1.0.json",
+      "extracted": []
+    },
+    {
+      "id": "naudio.dmo",
+      "version": "3.1.0",
+      "sha512": "Dx9Dc+1zhUnrRXpuPi6hpUYgcRN0IXDi8sAgub/OS/ktP/nJpfTHqdI6whsAxDCRAt0hU1WMTYmsijgl4Tw+lQ==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.09.07.07.31.48/naudio.dmo.3.1.0.json",
+      "extracted": []
+    },
+    {
+      "id": "naudio.midi",
+      "version": "3.1.0",
+      "sha512": "cy1hwQHdb6TC0nBXQ3WP+uKUy1//Y3Fuo8UHJAYaxX/c3vJA77ruYvgvizPID2jd/UTAFepsUzWIDQPaha8DgA==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.09.07.07.31.14/naudio.midi.3.1.0.json",
+      "extracted": []
+    },
+    {
+      "id": "naudio.wasapi",
+      "version": "3.1.0",
+      "sha512": "DOUvo4WR1cWf9YWQJtEMThSShAUWx/gnK9qxI9IGwBJJFkQUJJyMeLpgANB3t2yk39DQSATYLQ2XnFwEZqtiHQ==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.09.07.07.30.08/naudio.wasapi.3.1.0.json",
+      "extracted": []
+    },
+    {
+      "id": "naudio.winforms",
+      "version": "3.1.0",
+      "sha512": "WjIRJTKMcoWzTlTOOoj1Dp2SAbTvXs/30t/Sqw7CnFTsc5PYP9WLmqQuzxpxD59M5/TeBnOBzssQnmuFQW8upQ==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.09.07.07.30.08/naudio.winforms.3.1.0.json",
+      "extracted": []
+    },
+    {
+      "id": "naudio.winmm",
+      "version": "3.1.0",
+      "sha512": "5QO/XqrEvbFLejzGgrhc5p+gjW1mc/hAoZR37/E7wyxWrgfA3V8sYxtxV526TgeAx5Bn+SsH1HERBU1MMCg81Q==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.09.07.07.29.34/naudio.winmm.3.1.0.json",
+      "extracted": []
+    },
+    {
+      "id": "system.numerics.tensors",
+      "version": "9.0.0",
+      "sha512": "razlju7UgILQ/Vb7BoW1RR/xIEBDc8Ynq0sRk74KpLBHay3QMZJfgK8ly4IEzlJlbFYlCOxpdPa7DNBUYaYtIw==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [
+        "LICENSE.TXT",
+        "THIRD-PARTY-NOTICES.TXT"
+      ],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2024.11.12.19.08.31/system.numerics.tensors.9.0.0.json",
+      "extracted": [
+        {
+          "file": "system.numerics.tensors-0-LICENSE.TXT",
+          "sha256": "d7a68596ab69b06f51ca278a6545148e4269a9381c26d597c13df5d88e08cf5b",
+          "archive_path": "LICENSE.TXT"
+        },
+        {
+          "file": "system.numerics.tensors-1-THIRD-PARTY-NOTICES.TXT",
+          "sha256": "40686c6447a7d5b5d3693068e4571b5f483d7ed335aeee773ef662440de4c5d5",
+          "archive_path": "THIRD-PARTY-NOTICES.TXT"
+        }
+      ]
+    },
+    {
+      "id": "system.speech",
+      "version": "10.0.12",
+      "sha512": "C9L8zgBAQAUh/QLlUdWUJBpAe+7dgwooBpR/UdsjSCPZ4mRs3uN4hVcKQud6k4BSgPzMlItl16IKG4kE4jwlEw==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [
+        "THIRD-PARTY-NOTICES.TXT"
+      ],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.09.08.19.41.39/system.speech.10.0.12.json",
+      "extracted": [
+        {
+          "file": "system.speech-0-THIRD-PARTY-NOTICES.TXT",
+          "sha256": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+          "archive_path": "THIRD-PARTY-NOTICES.TXT"
+        }
+      ]
+    },
+    {
+      "id": "whisper.net",
+      "version": "1.9.1",
+      "sha512": "b9OntkriQP5ylc07KY4gAnKOgAJfjTO4qOscfgfGbNPztYg0O3G2+EOrIMbLCkI+ZNHzvkZH6KhikuEUM/dX8w==",
+      "license": null,
+      "licenseUrl": "https://aka.ms/deprecateLicenseUrl",
+      "vulnerabilities": [],
+      "notices": [
+        "LICENSE"
+      ],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.06.01.15.08.18/whisper.net.1.9.1.json",
+      "extracted": [
+        {
+          "file": "whisper.net-0-LICENSE",
+          "sha256": "d9ca846bbb028d80a87027b886dc7db63ba22dfc6a5e17c4aace03f62ab644ec",
+          "archive_path": "LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "whisper.net.runtime",
+      "version": "1.9.1",
+      "sha512": "oirjgKsR/CtqwA75asLFN4TyM9mgDoRXIpqrT623oTRMsek49dYvwhnEIT1w2ggYlaE/IdLEf8Bz2NEb0dOA7Q==",
+      "license": "MIT",
+      "licenseUrl": "https://licenses.nuget.org/MIT",
+      "vulnerabilities": [],
+      "notices": [],
+      "catalog": "https://api.nuget.org/v3/catalog0/data/2026.06.01.15.10.13/whisper.net.runtime.1.9.1.json",
+      "extracted": []
+    }
+  ],
+  "exact_source_supplements": [
+    {
+      "file": "naudio-exact-MIT.txt",
+      "sha256": "e518e168af44d37da3de236e719c986169e47b46b90e37c1355056175744e037",
+      "url": "https://raw.githubusercontent.com/naudio/NAudio/0aaef29d04bec9567bdf2f669036fabecc33a2e2/LICENSE"
+    },
+    {
+      "file": "dotnet-system-speech-MIT.txt",
+      "sha256": "ae48df11a335dc1a615f4f938b69cba73bcf4485c4f97af49b38efb0f216353b",
+      "url": "https://raw.githubusercontent.com/dotnet/dotnet/95017c711e6afc1085133d440e42b4bd78155701/LICENSE.TXT"
+    },
+    {
+      "file": "whisper-cpp-exact-MIT.txt",
+      "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+      "url": "https://raw.githubusercontent.com/ggml-org/whisper.cpp/f24588a272ae8e23280d9c220536437164e6ed28/LICENSE"
+    },
+    {
+      "file": "microsoft-extensions-exact-MIT.txt",
+      "sha256": "47f0ad8ba753eae5de6178291cd8f38bbb42d2368b177f8e11714ad17c701275",
+      "url": "https://raw.githubusercontent.com/dotnet/extensions/7c82ecb60925d76e53b65e290a33bef46f285cae/LICENSE"
+    },
+    {
+      "file": "microsoft-windows-sdk-license.rtf",
+      "sha256": "dd07eb178e00c6bba4148457fc00ff77cd4887eb521d504186fe59c9ec8bbe62",
+      "url": "https://aka.ms/WinSDKLicenseURL"
+    }
+  ]
+}

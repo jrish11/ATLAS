@@ -23,7 +23,9 @@ static class Paths
         try { install ??= JsonNode.Parse(File.ReadAllText(Path.Combine(App, "atticus.json")))!.AsObject(); } catch { install = new JsonObject(); }
         return install[k]?.GetValue<string>() ?? "";
     }
-    public static string Python => Install("python") is { Length: > 0 } p && File.Exists(p) ? p : Path.Combine(Local, "venv", "Scripts", "python.exe");
+    public static string Python => Install("python") is { Length: > 0 } p && File.Exists(p) ? p :
+        File.Exists(Path.Combine(App, "runtime", "python.exe")) ? Path.Combine(App, "runtime", "python.exe") :
+        Path.Combine(Local, "venv", "Scripts", "python.exe");
     public static string Script => File.Exists(Path.Combine(App, "atticus.py")) ? Path.Combine(App, "atticus.py") : Path.Combine(Install("source"), "atticus.py");
     public static string Model => Path.Combine(Local, "models", "ggml-" + Prefs.Str("speechModel") + ".bin");
 }

@@ -9,7 +9,7 @@ The ATLAS display name, default configuration directory, local runtime directory
 ## Build on a Windows test machine
 
 1. Install .NET 10 SDK, Python 3.11+, Git for Windows, Microsoft Edge WebView2 Runtime, and Claude Code. Sign into Claude Code with a supported account.
-2. From a PowerShell window in this source directory, run `powershell -ExecutionPolicy Bypass -File .\build-atlas.ps1`. This installs Python dependencies into `.venv-atlas` and downloads .NET packages as needed; it does not install or start the app.
+2. From a PowerShell window in this source directory, run `.\build-atlas.ps1`. This installs Python dependencies into `.venv-atlas` and downloads .NET packages as needed; it does not install or start the app.
 3. Run `dist\ATLAS\Atticus.exe --selftest`, then `.\.venv-atlas\Scripts\python.exe -m unittest discover -s tests -v` and `$env:PYTHONUTF8='1'; .\.venv-atlas\Scripts\python.exe atticus.py --selftest` with `ATTICUS_DIR` set to a disposable directory. Manually test onboarding, microphone, hotkey, approvals, account login, and co-existence with Atticus on Windows before any release.
 4. The generated folder depends on the source tree's `.venv-atlas` and is not a distributable installer. A reproducible packaging process, malware scanning, code signing, and clean-machine tests remain to be done before offering public downloads.
 

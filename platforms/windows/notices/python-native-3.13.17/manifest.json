@@ -1,0 +1,129 @@
+{
+  "status": "Static source and notice evidence; redistribution and Windows runtime behavior remain to be reviewed.",
+  "python_sbom": "https://www.python.org/ftp/python/3.13.17/python-3.13.17-embed-amd64.zip.spdx.json",
+  "entries": [
+    {
+      "file": "bzip2-1.0.8-0.txt",
+      "sha256": "c6dbbf828498be844a89eaa3b84adbab3199e342eb5cb2ed2f0d4ba7ec0f38a3",
+      "source_archive": "https://github.com/python/cpython-source-deps/archive/refs/tags/bzip2-1.0.8.tar.gz",
+      "source_sha256": "ab8d1b0cc087c20d4c32c0e4fcf7d0c733a95da12cedc6d63b3f0a9af07427e2",
+      "archive_member": "cpython-source-deps-bzip2-1.0.8/LICENSE"
+    },
+    {
+      "file": "expat-2.8.5-0.txt",
+      "sha256": "31b15de82aa19a845156169a17a5488bf597e561b2c318d159ed583139b25e87",
+      "source_archive": "https://github.com/libexpat/libexpat/releases/download/R_2_8_5/expat-2.8.5.tar.gz",
+      "source_sha256": "920dde485e15eda0cce8d2310b41d492c534e5e3d89ad407a0b4176dd2ff88fe",
+      "archive_member": "expat-2.8.5/COPYING"
+    },
+    {
+      "file": "hacl-star-bb3d0dc8d9d15a5cd51094d5b69e70aa09005ff0-0.txt",
+      "sha256": "c5accbbd8546e94c34aed24afe689a617627d18eed5a6c48277e48db57c23851",
+      "source_archive": "https://github.com/hacl-star/hacl-star/archive/bb3d0dc8d9d15a5cd51094d5b69e70aa09005ff0.zip",
+      "source_sha256": "e31e4ca10da91c585793c0eaf1b98aee3cb43e3a58d3d8d478593e5a6bd82927",
+      "archive_member": "hacl-star-bb3d0dc8d9d15a5cd51094d5b69e70aa09005ff0/LICENSE"
+    },
+    {
+      "file": "hacl-star-bb3d0dc8d9d15a5cd51094d5b69e70aa09005ff0-1.txt",
+      "sha256": "998ce04fb8ad9dedb0bc1b44938f8c3dcf1089780fa105ce1c8c30fb5554d78c",
+      "source_archive": "https://github.com/hacl-star/hacl-star/archive/bb3d0dc8d9d15a5cd51094d5b69e70aa09005ff0.zip",
+      "source_sha256": "e31e4ca10da91c585793c0eaf1b98aee3cb43e3a58d3d8d478593e5a6bd82927",
+      "archive_member": "hacl-star-bb3d0dc8d9d15a5cd51094d5b69e70aa09005ff0/dist/LICENSE.txt"
+    },
+    {
+      "file": "hacl-star-bb3d0dc8d9d15a5cd51094d5b69e70aa09005ff0-2.txt",
+      "sha256": "16da3774fb256d8d5434437ddabd063f7a7e23ac82515705a07fdab4bab39222",
+      "source_archive": "https://github.com/hacl-star/hacl-star/archive/bb3d0dc8d9d15a5cd51094d5b69e70aa09005ff0.zip",
+      "source_sha256": "e31e4ca10da91c585793c0eaf1b98aee3cb43e3a58d3d8d478593e5a6bd82927",
+      "archive_member": "hacl-star-bb3d0dc8d9d15a5cd51094d5b69e70aa09005ff0/vale/LICENSE"
+    },
+    {
+      "file": "libb2-0.98.1-0.txt",
+      "sha256": "6a1ee543e5282cd9061881edf462e6fdab181f328da71fc2c9a6950a80e94d01",
+      "source_archive": "https://github.com/BLAKE2/libb2/releases/download/v0.98.1/libb2-0.98.1.tar.gz",
+      "source_sha256": "53626fddce753c454a3fea581cbbc7fe9bbcf0bc70416d48fdbbf5d87ef6c72e",
+      "archive_member": "libb2-0.98.1/COPYING"
+    },
+    {
+      "file": "libffi-3.4.4-0.txt",
+      "sha256": "2c9c2acb9743e6b007b91350475308aee44691d96aa20eacef8e199988c8c388",
+      "source_archive": "https://github.com/python/cpython-source-deps/archive/refs/tags/libffi-3.4.4.tar.gz",
+      "source_sha256": "9d802681adfea27d84cae0487a785fb9caa925bdad44c401b364c59ab2b8edda",
+      "archive_member": "cpython-source-deps-libffi-3.4.4/LICENSE"
+    },
+    {
+      "file": "mpdecimal-4.0.0-0.txt",
+      "sha256": "2713324211652ce4a60e6e21e54f9dc3004299e591b0933a352f1a89c5fb53c2",
+      "source_archive": "https://github.com/python/cpython-source-deps/archive/refs/tags/mpdecimal-4.0.0.tar.gz",
+      "source_sha256": "338fac3fb8cdd60f406b6326431338756f58a8af94229ffd9bf1e7c2b1ad71ca",
+      "archive_member": "cpython-source-deps-mpdecimal-4.0.0/COPYRIGHT.txt"
+    },
+    {
+      "file": "mpdecimal-2.5.1-0.txt",
+      "sha256": "e8ed10a9fd887734377a936f3530e5637263848196a2726f6c085b0c1b5ab945",
+      "source_archive": "https://www.bytereef.org/software/mpdecimal/releases/mpdecimal-2.5.1.tar.gz",
+      "source_sha256": "9f9cd4c041f99b5c49ffb7b59d9f12d95b683d88585608aa56a6307667b2b21f",
+      "archive_member": "mpdecimal-2.5.1/doc/LICENSE.txt"
+    },
+    {
+      "file": "mpdecimal-2.5.1-1.txt",
+      "sha256": "b07528d8b1dbf1e2d2741052996f0876e23342ce2d30d0effa39c5457716c25a",
+      "source_archive": "https://www.bytereef.org/software/mpdecimal/releases/mpdecimal-2.5.1.tar.gz",
+      "source_sha256": "9f9cd4c041f99b5c49ffb7b59d9f12d95b683d88585608aa56a6307667b2b21f",
+      "archive_member": "mpdecimal-2.5.1/LICENSE.txt"
+    },
+    {
+      "file": "openssl-3.5.9-0.txt",
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "source_archive": "https://github.com/python/cpython-source-deps/archive/refs/tags/openssl-3.5.9.tar.gz",
+      "source_sha256": "d6cf0d9a651f25fe506f6b3dc133a80b9b79a0bc565f570dcf8fdbd597551485",
+      "archive_member": "cpython-source-deps-openssl-3.5.9/LICENSE.txt"
+    },
+    {
+      "file": "openssl-3.5.9-1.txt",
+      "sha256": "9837f05336ef3cbacb6a96e1672a0426d81ad01191f214b8d48e22ca62338181",
+      "source_archive": "https://github.com/python/cpython-source-deps/archive/refs/tags/openssl-3.5.9.tar.gz",
+      "source_sha256": "d6cf0d9a651f25fe506f6b3dc133a80b9b79a0bc565f570dcf8fdbd597551485",
+      "archive_member": "cpython-source-deps-openssl-3.5.9/external/perl/Text-Template-1.56/LICENSE"
+    },
+    {
+      "file": "xz-5.2.5-0.txt",
+      "sha256": "bcb02973ef6e87ea73d331b3a80df7748407f17efdb784b61b47e0e610d3bb5c",
+      "source_archive": "https://github.com/python/cpython-source-deps/archive/refs/tags/xz-5.2.5.tar.gz",
+      "source_sha256": "a15c168e39e87d750c3dc766edc7f19bdda57dacf01e509678467eace91ad282",
+      "archive_member": "cpython-source-deps-xz-5.2.5/COPYING"
+    },
+    {
+      "file": "zlib-1.3.1-0.txt",
+      "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243",
+      "source_archive": "https://github.com/python/cpython-source-deps/archive/refs/tags/zlib-1.3.1.tar.gz",
+      "source_sha256": "e3f3fb32564952006eb18b091ca8464740e5eca29d328cfb0b2da22768e0b638",
+      "archive_member": "cpython-source-deps-zlib-1.3.1/LICENSE"
+    },
+    {
+      "file": "SQLite-official-copyright.html",
+      "sha256": "44ca9f793055c8e32fc65f65a4f5bcf813a33f5bdaaa084067dd617a4ed3cc70",
+      "url": "https://www.sqlite.org/copyright.html"
+    },
+    {
+      "file": "UIAutomationClient-upstream-Apache.txt",
+      "sha256": "7c36172b09fab176720232be85384cb1d5cc64ee40dd0f50d335ba04aa3d71fb",
+      "url": "https://raw.githubusercontent.com/yinkaisheng/UIAutomationClient/a79dfedc3e4d46cbb63250eaefc5357bfa815109/LICENSE"
+    },
+    {
+      "file": "UIAutomationClient-gif-source.h",
+      "sha256": "49796ae65c053661a85b20abdafc654a0e54ff2efac569ad5b02c883c4fd0bb8",
+      "url": "https://raw.githubusercontent.com/yinkaisheng/UIAutomationClient/5a0fb7539a4bb2041b61bc410fd50ab1f20b6b62/src/gif.h"
+    },
+    {
+      "file": "PYTHON.txt",
+      "sha256": "62bec384df47b0328307db41455ff6ea2559e5546b394ac69148561b21703120",
+      "provenance": "collect-python-notices.py, which verifies exact pinned artifact hashes before extraction"
+    },
+    {
+      "file": "PYTHON-PACKAGES.txt",
+      "sha256": "13c0889f78dcb150073ba0b18da39670b2659ad9ae49d420c198b815553573c3",
+      "provenance": "collect-python-notices.py, which verifies exact pinned artifact hashes before extraction"
+    }
+  ]
+}
