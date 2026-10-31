@@ -55,6 +55,9 @@ class ProposedReadinessTests(unittest.TestCase):
    manager.command({**data,'confirmed':False});manager.start.assert_not_called()
    manager.command(data);manager.start.assert_called_once()
    manager.command(data);manager.start.assert_called_once()
+   manager.rows['fixture']['status']='running'
+   manager.command({**data,'requestId':'22345678-1234-4123-8123-123456789abc'});manager.start.assert_called_once()
+   self.assertIn('matching Codex task',manager.emit.call_args.args[0]['error'])
    # Simulate a restored registry: persisted request receipt still deduplicates.
    manager.rows={k:dict(v,status='stopped') for k,v in manager.rows.items()};manager.command(data);manager.start.assert_called_once()
    manager.command({**data,'task':'different'});manager.start.assert_called_once()

@@ -30,29 +30,38 @@ const button=(text,fn)=>({textContent:text,onclick:fn,disabled:false});const sho
 for(const args of [[null,'x',true],['/tmp','x',false],['~/project','x',true],['/','x',true],['/tmp\nother','x',true],['/tmp','',true],['/tmp','x'.repeat(4001),true]])assert.throws(()=>codexStartPayload(...args,[]));
 const active={provider:'codex',folder:'/fixture',brief:'inspect',status:'running'};
 assert.throws(()=>codexStartPayload('/fixture','inspect',true,[active]));
+assert.throws(()=>codexStartPayload('','inspect',true,[active]));
 assert.throws(()=>codexStartPayload('/fixture','inspect',true,[{...active,status:'stopped',cancelReviewRequired:true}]));
+const automatic=codexStartPayload('','inspect',true,[]);assert.equal(automatic.folder,'');
 const p=codexStartPayload(' /fixture ',' inspect ',true,[]);assert.equal(p.folder,'/fixture');assert.equal(p.task,'inspect');assert.match(p.requestId,/^[a-f0-9-]{36}$/);
 assert.equal(posts.length,0);
 ''')
 
  def test_pending_recovery_requires_owner_review_and_never_retries(self):
   self.run_js(r'''
-$('codex-folder').value='/fixture';$('codex-task').value='inspect';$('codex-confirm').checked=true;submitCodexTask();
+$('codex-folder').value='/fixture';$('codex-task').value='inspect';submitCodexTask();
 reviewCodexPending();assert.ok(codexPending);assert.equal(posts.length,1);
-$('codex-reviewed').checked=true;reviewCodexPending();assert.equal(codexPending,null);assert.equal($('codex-confirm').checked,false);assert.equal(posts.length,1);
-submitCodexTask();assert.equal(posts.length,1);
+$('codex-reviewed').checked=true;reviewCodexPending();assert.equal(codexPending,null);assert.equal(posts.length,1);
+assert.equal(posts.length,1);
 ''')
 
  def test_native_cancel_unlocks_only_its_own_pending_request(self):
   self.run_js(r'''
-$('codex-folder').value='/fixture';$('codex-task').value='inspect';$('codex-confirm').checked=true;submitCodexTask();
+$('codex-folder').value='/fixture';$('codex-task').value='inspect';submitCodexTask();
 codexNativeCancelled('stale');assert.ok(codexPending);assert.equal($('codex-submit').disabled,true);
-codexNativeCancelled(posts[0].requestId);assert.equal(codexPending,null);assert.equal($('codex-confirm').checked,false);assert.equal($('codex-submit').disabled,false);assert.equal(posts.length,1);
+codexNativeCancelled(posts[0].requestId);assert.equal(codexPending,null);assert.equal($('codex-submit').disabled,false);assert.equal(posts.length,1);
+''')
+
+ def test_only_correlated_start_error_unlocks_and_displays_reason(self):
+  self.run_js(r'''
+$('codex-folder').value='';$('codex-task').value='inspect';submitCodexTask();
+codexNativeError({id:'stale',error:'wrong'});assert.ok(codexPending);
+codexNativeError({id:posts[0].requestId,error:'fixture unavailable'});assert.equal(codexPending,null);assert.equal($('codex-submit').disabled,false);assert.equal($('codex-start-status').textContent,'fixture unavailable');
 ''')
 
  def test_submit_once_then_wait_for_actual_record(self):
   self.run_js(r'''
-$('codex-folder').value='/fixture';$('codex-task').value='<script>untrusted text</script>';$('codex-confirm').checked=true;
+$('codex-folder').value='/fixture';$('codex-task').value='<script>untrusted text</script>';
 submitCodexTask();submitCodexTask();assert.equal(posts.length,1);assert.equal(posts[0].action,'codex-start');assert.equal(posts[0].task,'<script>untrusted text</script>');assert.equal($('codex-submit').disabled,true);
 codexObserve([{provider:'codex',folder:'/other',brief:posts[0].task,created:Date.now()/1000}]);assert.ok(codexPending);
 codexObserve([{provider:'codex',folder:'/fixture',brief:posts[0].task,created:0}]);assert.ok(codexPending);
@@ -85,9 +94,9 @@ assert.equal(posts.length,0);
   if not node:self.skipTest('Node unavailable')
   self.assertIn("$('codex-form').onsubmit=e=>{e.preventDefault();submitCodexTask();};",html)
   self.assertIn("$('codex-dismiss').onclick=()=>{$('codex-create').hidden=true;};",html)
-  self.assertIn('id="codex-confirm" type="checkbox"',html)
+  self.assertIn('You will review the project and task before Codex starts.',html)
   self.assertIn("command('choose-codex-folder','')",html)
-  self.assertIn("$('codex-confirm').checked=false",html)
+  self.assertNotIn('id="codex-confirm"',html)
   swift=(ROOT/'Atticus.swift').read_text()
   chooser=swift.split('        case "choose-codex-folder":',1)[1].split('        case "codex-start":',1)[0]
   self.assertIn('picker.runModal() == .OK',chooser)

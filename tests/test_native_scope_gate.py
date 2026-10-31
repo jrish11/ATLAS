@@ -11,9 +11,21 @@ class NativeScopeGateTests(unittest.TestCase):
   self.assertIn('if NativeAutonomyScope.featureEnabled, pieces.count == 3',s)
   self.assertIn('let freshScope=NativeAutonomyScope();precondition(!freshScope.active)',s)
   self.assertLess(s.index('guard alert.runModal() == .alertFirstButtonReturn'),s.index('autonomy.activate(targets'))
-  self.assertIn('Autonomous mode — approved tasks',s)
+  self.assertIn('Autopilot targets…',s)
   self.assertIn('guard autonomy.hasGrant, !autonomy.active else { return }',s)
   self.assertIn('NSWorkspace.didWakeNotification',s)
+
+ def test_one_screen_keeps_exact_scope_and_revalidates_before_enable(self):
+  s=(ROOT/'Atticus.swift').read_text();view=s.split('final class AutopilotTargetsView:',1)[1].split('// The menu bar icon',1)[0]
+  toggle=s.split('    @objc func toggleAutonomy()',1)[1].split('    func autopilotTargetError()',1)[0]
+  self.assertIn('Selected targets:',view);self.assertIn('target=self;apps.action=#selector(updatePreview)',view)
+  self.assertEqual(toggle.count('alert.runModal()'),1)
+  self.assertIn('Enable for 10 minutes',toggle);self.assertIn('Other actions still require approval',toggle)
+  self.assertIn('choices.allSatisfy({$0.command==id+" — "+path})',toggle)
+  self.assertIn('choice.command==selector.sites.titleOfSelectedItem',toggle)
+  self.assertIn('targets.allSatisfy({$0.currentRevision() == $0.revision})',toggle)
+  self.assertLess(toggle.index('autonomyAudit("activation_confirmed")'),toggle.index('autonomy.activate(targets'))
+  self.assertIn('Autopilot on ·',s);self.assertIn('autonomy.selectedCommands',s);self.assertIn('Stop Autopilot',s)
 
  def test_stop_cancels_before_blocking_audit(self):
   s=(ROOT/'Atticus.swift').read_text();helper=s.split('func stopScopedAutonomy(',1)[1].split('\n}',1)[0]

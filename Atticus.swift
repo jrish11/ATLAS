@@ -1040,6 +1040,10 @@ func transcriptKey(_ s: String) -> String {
     s.lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: " .,!?:;"))
 }
 
+func explicitCodexRequest(_ words:String) -> Bool {
+    words.range(of:#"^(?:(?:use|ask|have|tell|let|make|can|could|i want|i'd like)\s+)?codex(?:[\s,:]|$)"#,options:.regularExpression) != nil
+}
+
 func stitchTranscript(_ prefix: String, _ suffix: String) -> String {
     let a = prefix.split(whereSeparator: { $0.isWhitespace }), b = suffix.split(whereSeparator: { $0.isWhitespace })
     guard !a.isEmpty else { return suffix }
@@ -4262,6 +4266,17 @@ final class App: NSObject, WKScriptMessageHandler {
         // Only confirmed whole requests can reach the resident personal route.
         let words = transcriptKey(t).replacingOccurrences(of: #"^(?:(?:hey|ok|okay|atticus|atlas|please|also|and|now|then|can you|could you|would you|will you)[,\s]+)+"#, with: "", options: .regularExpression)
         let openIntent = words.range(of: #"^(?:open(?: up)?|launch|pull up|bring up|focus on|switch to|go to)\s+"#, options: .regularExpression) != nil
+        let explicitCodex = explicitCodexRequest(words)
+        if explicitCodex && !speculative && remaining == nil && !Prefs.bool("paused") &&
+            pointContext == nil && !drawing.hasInput && selection == nil && replyAgent.isEmpty {
+            unwarm()
+            let requestID=UUID().uuidString.lowercased()
+            let accepted=agentsUI.startCodexRequest(["action":"codex-start","requestId":requestID,"folder":"","task":t,"confirmed":true],fromUI:false)
+            busy=false;foregroundPending=nil
+            if accepted {js("msg","Codex request sent. Check Agents for its status.");agentsUI.openView()}
+            else {js("msg","Codex task was not started.")}
+            show();return
+        }
         if tryPersonal && !speculative && remaining == nil && openIntent && Prefs.bool("instant") && !Prefs.bool("paused") &&
             pointContext == nil && !drawing.hasInput && selection == nil && replyAgent.isEmpty {
             let generation = stops, wasBusy = busy
@@ -4402,6 +4417,12 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
         do { try input?.write(contentsOf:json + Data([10])) }
         catch { process?.terminate() }
     }
+    func sendCodexStart(_ data:[String:Any]) -> Bool {
+        start()
+        guard let process,process.isRunning,let input,let json=try? JSONSerialization.data(withJSONObject:data) else {return false}
+        do {try input.write(contentsOf:json+Data([10]));return true}
+        catch {process.terminate();return false}
+    }
     // Reuse the existing supervisor's private stdin; no socket, login item or extra daemon.
     func personalOpen(_ text: String, completion: @escaping ([String:Any]?) -> Void) -> Bool {
         guard let process, process.isRunning, let input, text.count <= 512 else { return false }
@@ -4481,6 +4502,10 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
     }
     func receive(_ event:[String:Any]) {
         let kind = event["event"] as? String ?? ""
+        if kind == "codex-start-error",let message=event["error"] as? String {
+            js("view","codexStartError",["id":event["requestId"] as? String ?? "", "error":message])
+            app.js("msg",message);return
+        }
         if kind == "personal-result", let id = event["id"] as? String {
             personalPending.removeValue(forKey:id)?(event); return
         }
@@ -4814,6 +4839,66 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
         if let target = row["target"] as? [String:Any] { mini.receive(target); mini.open(); mini.reset() }
         else { openView(id) }
     }
+    // Local-only scope proposal. Creation is requested only after the native alert.
+    func codexWorkspaceRequest(_ data:[String:Any]) -> [String:Any]? {
+        let process=py(["--codex-workspace"],["ATTICUS_UI":"1"]),input=Pipe(),output=Pipe()
+        process.standardInput=input;process.standardOutput=output;process.standardError=FileHandle.nullDevice
+        guard let payload=try? JSONSerialization.data(withJSONObject:data) else {return nil}
+        let done=DispatchSemaphore(value:0);process.terminationHandler={_ in done.signal()}
+        do {try process.run();try input.fileHandleForWriting.write(contentsOf:payload);try? input.fileHandleForWriting.close()
+            guard done.wait(timeout:.now()+3) == .success else {if process.isRunning {process.terminate()};return nil}
+            let result=output.fileHandleForReading.readDataToEndOfFile()
+            guard process.terminationStatus==0 else {return nil}
+            return (try? JSONSerialization.jsonObject(with:result)) as? [String:Any]
+        } catch {if process.isRunning {process.terminate()};return nil}
+    }
+
+    @discardableResult func startCodexRequest(_ body:[String:Any], fromUI:Bool) -> Bool {
+        func rejected() -> Bool {
+            if fromUI, let id=body["requestId"] as? String {js("view","codexStartCancelled",id)}
+            return false
+        }
+            guard body["confirmed"] as? Bool == true, let rawFolder=body["folder"] as? String,
+                  let task=body["task"] as? String,!task.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,task.count<=4000,let requestID=body["requestId"] as? String else {return false}
+            var folder=rawFolder, managed=false
+            if folder.isEmpty {
+                guard let proposal=codexWorkspaceRequest(["action":"proposal","task":task,"requestId":requestID]),let status=proposal["status"] as? String else {return rejected()}
+                if status=="matched",let selected=proposal["folder"] as? String {folder=selected}
+                else if status=="managed",let selected=proposal["folder"] as? String {folder=selected;managed=true}
+                else if status=="ambiguous" {
+                    let picker=NSOpenPanel();picker.canChooseDirectories=true;picker.canChooseFiles=false;picker.allowsMultipleSelection=false
+                    picker.message="The project could not be determined. Choose the project for this task."
+                    guard picker.runModal() == .OK,let selected=picker.url?.path else {return rejected()};folder=selected
+                } else {
+                    let notice=NSAlert();notice.messageText="Could not choose the project";notice.informativeText="A saved project is unavailable or its registry could not be read. Choose the project explicitly.";notice.runModal()
+                    return rejected()
+                }
+            }
+            guard folder.hasPrefix("/") else {return rejected()}
+            let canonical=URL(fileURLWithPath:folder).resolvingSymlinksInPath().standardizedFileURL.path
+            var before:[FileAttributeKey:Any]? = try? FileManager.default.attributesOfItem(atPath:canonical)
+            var createdIdentity:[String:NSNumber]?
+            if (!managed && before == nil) || (managed && before != nil) {return rejected()}
+            let workspaceNote=managed ? " (a new ATLAS workspace will be created)" : ""
+            let alert=NSAlert();alert.messageText="Start this Codex task?";alert.informativeText="Project: "+canonical+workspaceNote+"\n\nTask: "+task+"\n\nCodex may read and change files in this project. Requests to expand permissions need your approval. Your existing ChatGPT account is used."
+            alert.addButton(withTitle:"Start Codex task");alert.addButton(withTitle:"Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else {return rejected()}
+            if managed {
+                guard let created=codexWorkspaceRequest(["action":"create","confirmed":true,"requestId":requestID]),created["folder"] as? String==canonical,let identity=created["identity"] as? [String:NSNumber] else {
+                    let notice=NSAlert();notice.messageText="ATLAS workspace is unavailable";notice.informativeText="The workspace could not be safely created or verified. Choose a different project and try again.";notice.runModal();return rejected()
+                }
+                createdIdentity=identity;before=try? FileManager.default.attributesOfItem(atPath:canonical)
+            }
+            guard let info=before,let device=info[.systemNumber] as? NSNumber,let inode=info[.systemFileNumber] as? NSNumber,info[.type] as? FileAttributeType == .typeDirectory,
+                  URL(fileURLWithPath:folder).resolvingSymlinksInPath().standardizedFileURL.path==canonical,
+                  let now=try? FileManager.default.attributesOfItem(atPath:canonical),(now[.systemNumber] as? NSNumber)==device,(now[.systemFileNumber] as? NSNumber)==inode,now[.type] as? FileAttributeType == .typeDirectory,
+                  !managed || (createdIdentity?["device"]==device && createdIdentity?["inode"]==inode) else {return rejected()}
+            var confirmed=body;confirmed["folder"]=canonical;confirmed["folderIdentity"]=["device":device,"inode":inode]
+            guard sendCodexStart(confirmed) else {
+                let notice=NSAlert();notice.messageText="Could not start Agents";notice.informativeText="The local task supervisor is unavailable. No Codex task was submitted.";notice.runModal();return rejected()
+            };return true
+    }
+
     func userContentController(_ controller:WKUserContentController,didReceive message:WKScriptMessage) {
         guard let body = message.body as? [String:Any], let action = body["action"] as? String else { return }
         let surface = message.webView === viewWeb ? "view" : "shelf", id = body["id"] as? String ?? ""
@@ -4873,13 +4958,8 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
             guard picker.runModal() == .OK,let folder=picker.url?.resolvingSymlinksInPath().standardizedFileURL.path else {return}
             js("view","codexFolder",folder)
         case "codex-start":
-            guard surface == "view", body["confirmed"] as? Bool == true, let folder=body["folder"] as? String, folder.hasPrefix("/"), let task=body["task"] as? String, !task.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, task.count<=4000, let requestID=body["requestId"] as? String else {return}
-            let canonical=URL(fileURLWithPath:folder).resolvingSymlinksInPath().standardizedFileURL.path
-            guard let info=try? FileManager.default.attributesOfItem(atPath:canonical),let device=info[.systemNumber] as? NSNumber,let inode=info[.systemFileNumber] as? NSNumber,info[.type] as? FileAttributeType == .typeDirectory else {js("view","codexStartCancelled",requestID);return}
-            let alert=NSAlert();alert.messageText="Start this Codex task?";alert.informativeText="Project: "+canonical+"\n\nTask: "+task+"\n\nCodex may read and change files in this project. Requests to expand permissions need your approval. Your existing ChatGPT account is used."
-            alert.addButton(withTitle:"Start Codex task");alert.addButton(withTitle:"Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn,URL(fileURLWithPath:folder).resolvingSymlinksInPath().standardizedFileURL.path==canonical,let now=try? FileManager.default.attributesOfItem(atPath:canonical),(now[.systemNumber] as? NSNumber)==device,(now[.systemFileNumber] as? NSNumber)==inode,now[.type] as? FileAttributeType == .typeDirectory else {js("view","codexStartCancelled",requestID);return}
-            var confirmed=body;confirmed["folder"]=canonical;confirmed["folderIdentity"]=["device":device,"inode":inode];send(confirmed)
+            guard surface == "view" else {return}
+            startCodexRequest(body,fromUI:true)
         case "answer":
             if rows[id]?["provider"] as? String == "codex", body["answer"] as? String == "y" {
                 guard let q=rows[id]?["question"] as? [String:Any],let token=q["_a"] as? String,token==body["question"] as? String, let details=q["cmd"] as? String else {return}
@@ -5556,6 +5636,10 @@ final class NativeAutonomyScope {
     var hasGrant: Bool { !targets.isEmpty }
     var active: Bool { hasGrant && clock() < expires }
     var deadline: TimeInterval? { active ? expires : nil }
+    var selectedCommands: [String] {
+        guard active else {return []}
+        var seen=Set<String>();return targets.map(\.command).filter {seen.insert($0).inserted}
+    }
     func revision(question:String,command:String) -> String? { targets.first(where:{$0.question==question && $0.command==command})?.revision }
     func stop() { targets=[]; seen=[]; expires=0 }
     func activate(_ selected: [ScopedTarget], now: TimeInterval) -> Bool {
@@ -5575,6 +5659,36 @@ enum AutonomyAudit { static let writes=DispatchGroup() }
 // Revoke and cancel synchronously; a stalled audit must never delay Stop.
 func stopScopedAutonomy(_ scope: NativeAutonomyScope, cancel: () -> Void, audit: @escaping () -> Bool, schedule: (@escaping () -> Void) -> Void) {
     scope.stop(); cancel(); schedule { _=audit() }
+}
+
+// One native review surface. Target labels contain the exact app path or URL;
+// this view does not itself grant authority.
+final class AutopilotTargetsView: NSObject {
+    let view=NSStackView(), apps=NSPopUpButton(), sites=NSPopUpButton()
+    let preview=NSTextField(wrappingLabelWithString: "")
+    init(appChoices:[(String,String,String)], siteChoices:[(String,String)], appsEnabled:Bool, sitesEnabled:Bool) {
+        super.init()
+        view.orientation = .vertical;view.alignment = .leading;view.spacing=7
+        view.frame=NSRect(x:0,y:0,width:470,height:260)
+        func label(_ text:String) -> NSTextField {let value=NSTextField(wrappingLabelWithString:text);value.preferredMaxLayoutWidth=460;return value}
+        view.addArrangedSubview(label("Choose up to one installed app and one confirmed HTTPS destination."))
+        view.addArrangedSubview(label(appsEnabled ? "App" : "App — enable Approved app control in Settings → Intelligence first."))
+        apps.addItem(withTitle:"None");apps.lastItem?.representedObject=""
+        for (bundle,path,title) in appChoices { apps.addItem(withTitle:title);apps.lastItem?.representedObject=["id":bundle,"path":path] }
+        apps.isEnabled=appsEnabled && !appChoices.isEmpty;apps.target=self;apps.action=#selector(updatePreview)
+        view.addArrangedSubview(apps)
+        view.addArrangedSubview(label(sitesEnabled ? "Saved Safari destination" : "Destination — enable Open saved Safari destinations in Settings → Intelligence first."))
+        sites.addItem(withTitle:"None");sites.lastItem?.representedObject=""
+        for (name,command) in siteChoices { sites.addItem(withTitle:command);sites.lastItem?.representedObject=name }
+        sites.isEnabled=sitesEnabled && !siteChoices.isEmpty;sites.target=self;sites.action=#selector(updatePreview)
+        view.addArrangedSubview(sites)
+        preview.preferredMaxLayoutWidth=460;preview.lineBreakMode = .byWordWrapping
+        view.addArrangedSubview(preview);updatePreview()
+    }
+    @objc func updatePreview() {
+        let selected=[apps.indexOfSelectedItem>0 ? apps.titleOfSelectedItem : nil,sites.indexOfSelectedItem>0 ? sites.titleOfSelectedItem : nil].compactMap{$0}
+        preview.stringValue=selected.isEmpty ? "No targets selected." : "Selected targets:\n"+selected.joined(separator:"\n")
+    }
 }
 
 // The menu bar icon: quick actions, today's usage.
@@ -5622,25 +5736,65 @@ final class MenuBar: NSObject, NSMenuDelegate {
         guard let (url,revision)=read() else { return nil }
         return ScopedTarget(question:"Open this saved destination in Safari?",command:label+" — "+url,revision:revision,currentRevision:{ read()?.1 })
     }
+    func autopilotAppChoices() -> [(String,String,String)] {
+        let fm=FileManager.default
+        let roots=["/Applications","/System/Applications",NSHomeDirectory()+"/Applications"]
+        var candidates=roots.flatMap { (try? fm.contentsOfDirectory(at:URL(fileURLWithPath:$0),includingPropertiesForKeys:nil,options:[.skipsHiddenFiles])) ?? [] }
+        candidates += NSWorkspace.shared.runningApplications.compactMap { $0.bundleURL }
+        var found:[String:(String,String)] = [:]
+        for url in candidates {
+            guard url.pathExtension.lowercased()=="app",let bundle=Bundle(url:url),let id=bundle.bundleIdentifier,
+                  let resolved=NSWorkspace.shared.urlForApplication(withBundleIdentifier:id)?.resolvingSymlinksInPath(),
+                  resolved==url.resolvingSymlinksInPath() else {continue}
+            let path=resolved.path,home=NSHomeDirectory()+"/Applications/"
+            guard path.hasPrefix("/Applications/") || path.hasPrefix("/System/Applications/") || path.hasPrefix(home) else {continue}
+            let name=(bundle.object(forInfoDictionaryKey:"CFBundleDisplayName") as? String) ?? (bundle.object(forInfoDictionaryKey:"CFBundleName") as? String) ?? url.deletingPathExtension().lastPathComponent
+            guard name.rangeOfCharacter(from:.controlCharacters)==nil,path.rangeOfCharacter(from:.controlCharacters)==nil else {continue}
+            found[id]=(path,name+" ("+id+") — "+path)
+            if found.count>=250 {break}
+        }
+        return found.map { ($0.key,$0.value.0,$0.value.1) }.sorted { $0.2.localizedCaseInsensitiveCompare($1.2) == .orderedAscending }
+    }
+    func autopilotSiteChoices() -> [(String,String)] {
+        let path=((Prefs.path as NSString).deletingLastPathComponent as NSString).appendingPathComponent("destinations.json")
+        guard let data=try? Data(contentsOf:URL(fileURLWithPath:path)),data.count<=8_000_000,
+              let rows=(try? JSONSerialization.jsonObject(with:data)) as? [[String:Any]] else {return []}
+        var found:[(String,String)]=[]
+        for row in rows {
+            guard let label=row["label"] as? String,!label.isEmpty,label.count<=120,label.rangeOfCharacter(from:.controlCharacters)==nil,let target=destinationTarget(label) else {continue}
+            if !found.contains(where:{$0.0==label}) {found.append((label,target.command))}
+            if found.count>=100 {break}
+        }
+        return found.sorted { $0.0.localizedCaseInsensitiveCompare($1.0) == .orderedAscending }
+    }
     @objc func toggleAutonomy() {
         guard NativeAutonomyScope.featureEnabled else { return }
         if autonomyActive {
             stopScopedAutonomy(autonomy,cancel:{app.cancel()},audit:{[weak self] in self?.autonomyAudit("revoked") ?? false},schedule:{ work in AutonomyAudit.writes.enter();DispatchQueue.global().async { defer { AutonomyAudit.writes.leave() };work() } })
             paint(); return
         }
-        let panel=NSAlert();panel.messageText="Choose autonomy targets";panel.informativeText="Enter one exact installed app bundle ID and/or one confirmed HTTPS destination name."
-        let stack=NSStackView();stack.orientation = .vertical;stack.spacing=8;stack.frame=NSRect(x:0,y:0,width:370,height:56)
-        let bundle=NSTextField(string:"");bundle.placeholderString="App bundle ID (optional)";let destination=NSTextField(string:"");destination.placeholderString="Saved destination (optional)";stack.addArrangedSubview(bundle);stack.addArrangedSubview(destination);panel.accessoryView=stack;panel.addButton(withTitle:"Preview");panel.addButton(withTitle:"Cancel")
-        guard panel.runModal() == .alertFirstButtonReturn else { return }
-        let b=bundle.stringValue.trimmingCharacters(in:.whitespacesAndNewlines),d=destination.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
+        let appsEnabled=Prefs.bool("foregroundAppControl"),sitesEnabled=Prefs.bool("foregroundSavedDestinations")
+        let selector=AutopilotTargetsView(appChoices:appsEnabled ? autopilotAppChoices() : [],siteChoices:sitesEnabled ? autopilotSiteChoices() : [],appsEnabled:appsEnabled,sitesEnabled:sitesEnabled)
+        let alert=NSAlert();alert.messageText="Autopilot targets"
+        alert.informativeText="Enable only the selected app open/focus and saved HTTPS destination for 10 minutes. Other actions still require approval. Stop cancels queued actions; an already dispatched action cannot be undone."
+        alert.accessoryView=selector.view;alert.addButton(withTitle:"Enable for 10 minutes");alert.addButton(withTitle:"Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
         var targets:[ScopedTarget]=[]
-        if !b.isEmpty { guard Prefs.bool("foregroundAppControl"), let apps=appTarget(b) else { return };targets += apps }
-        if !d.isEmpty { guard Prefs.bool("foregroundSavedDestinations"), let site=destinationTarget(d) else { return };targets.append(site) }
-        guard !targets.isEmpty else { return }
-        let alert=NSAlert();alert.messageText="Enable scoped autonomy for 10 minutes?";alert.informativeText=targets.map { $0.command }.joined(separator:"\n")+"\n\nOnly these app and saved HTTPS actions can skip approval. Other actions require approval. Stop cancels queued actions; an already dispatched action cannot be undone.";alert.addButton(withTitle:"Enable");alert.addButton(withTitle:"Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn, targets.allSatisfy({ $0.currentRevision() == $0.revision }) else { return }
-        guard autonomyAudit("activation_confirmed"), autonomy.activate(targets,now:steadyTime()) else { let error=NSAlert();error.messageText="Autonomous mode was not enabled";error.informativeText="The local audit record could not be saved.";error.runModal();return }
+        if selector.apps.indexOfSelectedItem>0 {
+            guard appsEnabled,let selected=selector.apps.selectedItem?.representedObject as? [String:String],let id=selected["id"],let path=selected["path"],let choices=appTarget(id),choices.allSatisfy({$0.command==id+" — "+path}) else {autopilotTargetError();return}
+            targets += choices
+        }
+        if selector.sites.indexOfSelectedItem>0 {
+            guard sitesEnabled,let label=selector.sites.selectedItem?.representedObject as? String,let choice=destinationTarget(label),choice.command==selector.sites.titleOfSelectedItem else {autopilotTargetError();return}
+            targets.append(choice)
+        }
+        guard !targets.isEmpty,targets.allSatisfy({$0.currentRevision() == $0.revision}) else {autopilotTargetError();return}
+        guard autonomyAudit("activation_confirmed"), autonomy.activate(targets,now:steadyTime()) else { let error=NSAlert();error.messageText="Autopilot was not enabled";error.informativeText="The local audit record could not be saved.";error.runModal();return }
         paint();DispatchQueue.main.asyncAfter(deadline:.now()+600) { [weak self] in self?.expireAutonomyIfNeeded() }
+    }
+    func autopilotTargetError() {
+        let error=NSAlert();error.messageText="Autopilot was not enabled"
+        error.informativeText="Select at least one available target. If a target changed, open Autopilot targets again and review it.";error.runModal()
     }
     func expireAutonomyIfNeeded() {
         guard autonomy.hasGrant, !autonomy.active else { return }
@@ -5667,7 +5821,14 @@ final class MenuBar: NSObject, NSMenuDelegate {
         u.attributedTitle = NSAttributedString(string: u.title, attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.secondaryLabelColor])
         u.isEnabled = false; m.addItem(u)
         m.addItem(.separator())
-        if NativeAutonomyScope.featureEnabled { add(m, autonomyActive ? "Stop autonomous mode" : "Autonomous mode — approved tasks…", #selector(toggleAutonomy), "", autonomyActive ? "stop.circle" : "shield") }
+        if NativeAutonomyScope.featureEnabled {
+            if let deadline=autonomy.deadline {
+                let remaining=max(0,Int(ceil(deadline-steadyTime())))
+                let status=NSMenuItem(title:"Autopilot on · \(remaining / 60)m \(remaining % 60)s left",action:nil,keyEquivalent:"");status.isEnabled=false;m.addItem(status)
+                for command in autonomy.selectedCommands {let target=NSMenuItem(title:command,action:nil,keyEquivalent:"");target.isEnabled=false;m.addItem(target)}
+            }
+            add(m, autonomyActive ? "Stop Autopilot" : "Autopilot targets…", #selector(toggleAutonomy), "", autonomyActive ? "stop.circle" : "shield")
+        }
         add(m, "Ask ATLAS", #selector(ask), "", "waveform")
         add(m, agentsUI.count > 0 ? "Agents · \(agentsUI.count) running…" : "Agents…", #selector(openAgents), "", "person.2")
         if agentsUI.hasLive || agentsUI.lingering { add(m, Prefs.bool("agentsHidden") ? "Show Agent Shelf" : "Hide Agent Shelf", #selector(hideAgents), "", Prefs.bool("agentsHidden") ? "eye" : "eye.slash") }
@@ -8776,6 +8937,10 @@ if CommandLine.arguments.dropFirst() == ["--selftest"] {
     precondition(transcriptKey("calculate 1.5") != transcriptKey("calculate 15"))
     precondition(transcriptKey("search a b") != transcriptKey("search ab"))
     precondition(transcriptKey("open a-b.com") != transcriptKey("open ab.com"))
+    precondition(explicitCodexRequest("use codex to build a calendar"))
+    precondition(explicitCodexRequest("codex, inspect the project"))
+    precondition(explicitCodexRequest("i want codex to help"))
+    precondition(!explicitCodexRequest("what is codex"))
     for (saved, expected) in [([String:Any](), "Atlas"), (["wakeWordName":"Atticus"], "Atlas"), (["wakeWordName":"Friday"], "Friday"), (["wakeWordName":"Hey Atticus"], "Hey Atticus")] {
         var values:[String:Any]=["wakeWordName":"Atticus","wakeWord":true]
         values.merge(saved) { _, value in value }
@@ -8802,11 +8967,12 @@ if CommandLine.arguments.dropFirst() == ["--selftest"] {
     var revision="v1"
     let fixture=ScopedTarget(question:"Open this installed app?",command:"com.example.Fixture — /Applications/Fixture.app",revision:"v1",currentRevision:{revision})
     precondition(scope.activate([fixture],now:fakeNow))
+    precondition(scope.selectedCommands == [fixture.command])
     precondition(scope.permits(question:fixture.question,command:fixture.command,requestID:String(repeating:"a",count:64),now:{fakeNow}))
     precondition(!scope.permits(question:fixture.question,command:fixture.command,requestID:String(repeating:"a",count:64),now:{fakeNow}))
     revision="v2";precondition(!scope.permits(question:fixture.question,command:fixture.command,requestID:String(repeating:"b",count:64),now:{fakeNow}))
     revision="v1";fakeNow=701;precondition(!scope.permits(question:fixture.question,command:fixture.command,requestID:String(repeating:"c",count:64),now:{fakeNow}))
-    scope.stop();precondition(!scope.active)
+    scope.stop();precondition(!scope.active && scope.selectedCommands.isEmpty)
     fakeNow=100
     let slow=ScopedTarget(question:fixture.question,command:fixture.command,revision:"v1",currentRevision:{fakeNow=701;return "v1"})
     precondition(scope.activate([slow],now:fakeNow))

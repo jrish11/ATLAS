@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>ATLAS Remote — Preview</title>
+<style>
+body{font:16px -apple-system,BlinkMacSystemFont,sans-serif;background:#17191d;color:#f4f4f4;margin:0;padding:24px}main{max-width:560px;margin:auto}textarea{box-sizing:border-box;width:100%;min-height:120px;background:#282c32;color:white;border:1px solid #626a76;border-radius:12px;padding:12px;font:inherit}button{font:inherit;border-radius:9px;padding:10px 16px;margin:8px 6px 8px 0}button:disabled{opacity:.45}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#282c32;padding:12px;border-radius:10px}small{color:#c4c9d1}
+</style></head><body><main>
+<h1>ATLAS Remote</h1>
+<p role="status">Not connected — development preview only. Sending and Stop are unavailable.</p>
+<label for="task">What would you like ATLAS to do?</label>
+<p><small>Type or use your iPhone keyboard’s dictation. Review the text before sending when a connection is available.</small></p>
+<textarea id="task" maxlength="4000"></textarea>
+<button id="preview" type="button">Preview</button><button type="button" disabled>Send</button><button type="button" disabled>Stop</button>
+<h2>Preview</h2><pre id="text"></pre>
+<script>
+document.getElementById('preview').onclick=()=>{document.getElementById('text').textContent=document.getElementById('task').value;};
+</script></main></body></html>

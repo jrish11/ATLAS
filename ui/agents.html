@@ -142,9 +142,9 @@ footer { padding:12px 20px 16px; border-top:.5px solid var(--line) } .ask { disp
 <p id="brief">Your tasks, while you do something else.</p>
 <section id="codex-create" hidden><form id="codex-form">
 <h2>Start a scoped Codex task</h2><p>Uses Codex authentication in Settings, separately from the foreground OpenAI API. Requires the supported Codex CLI and an existing ChatGPT account login. Readiness checks can block unsupported configurations.</p>
-<label for="codex-folder">Project folder (absolute path)</label><button id="codex-choose" type="button">Choose project folder…</button><input id="codex-folder" placeholder="/Users/you/Projects/example" maxlength="1024" autocomplete="off" spellcheck="false" required>
+<p>ATLAS will use a matching saved project or its own workspace. You can choose a different folder.</p><button id="codex-choose" type="button">Choose a different project…</button><input id="codex-folder" type="hidden"><p id="codex-scope-status">Automatic project selection</p>
 <label for="codex-task">Task</label><textarea id="codex-task" maxlength="4000" rows="3" required></textarea>
-<label><input id="codex-confirm" type="checkbox"> I confirm this project scope and authorize this task within its sandbox. Permission expansion still requires approval.</label>
+<p>You will review the project and task before Codex starts. Permission expansion still requires approval.</p>
 <div class="actions"><button id="codex-submit" type="submit" class="go">Start Codex task</button><button id="codex-dismiss" type="button">Close</button></div>
 <p id="codex-start-status" role="status" aria-live="polite"></p>
 <div id="codex-pending-review" hidden><label><input id="codex-reviewed" type="checkbox"> I checked Agents and the project for a matching request.</label><button id="codex-unlock" type="button">Unlock form after review</button></div></form></section>
@@ -183,10 +183,10 @@ const command=(action,id,more={})=>post({action,id,...more});
 let codexPending=null; const codexContinuing=new Set();
 function codexCanContinue(r){return !!r&&r.provider==='codex'&&['done','failed','stopped'].includes(r.status)&&!r.cancelRequested&&!r.cancelReviewRequired&&typeof r.folder==='string'&&r.folder.startsWith('/');}
 function codexStartPayload(folder,task,confirmed,known){
- if(typeof folder!=='string'||typeof task!=='string'||confirmed!==true)throw Error('Confirm the project scope and task first.');
+ if(typeof folder!=='string'||typeof task!=='string'||confirmed!==true)throw Error('Enter a task first.');
  folder=folder.trim();task=task.trim();
- if(!folder.startsWith('/')||folder==='/'||folder.length>1024||/[\x00-\x1f\x7f]/.test(folder)||!task||task.length>4000||task.includes('\0'))throw Error('Enter an absolute project folder and a task of 1–4000 characters.');
- if(known.some(r=>r.provider==='codex'&&r.folder===folder&&r.brief===task&&(ACTIVE.includes(r.status)||r.cancelReviewRequired)))throw Error('A matching task is active or needs cancellation review. Inspect it before starting another.');
+ if((folder && !folder.startsWith('/'))||folder==='/'||folder.length>1024||/[\x00-\x1f\x7f]/.test(folder)||!task||task.length>4000||task.includes('\0'))throw Error('Enter an absolute project folder and a task of 1–4000 characters.');
+ if(known.some(r=>r.provider==='codex'&&(!folder||r.folder===folder)&&r.brief===task&&(ACTIVE.includes(r.status)||r.cancelReviewRequired)))throw Error('A matching task is active or needs cancellation review. Inspect it before starting another.');
  return {folder,task,confirmed:true,requestId:crypto.randomUUID()};
 }
 function codexObserve(list){
@@ -197,19 +197,24 @@ function codexObserve(list){
 }
 function submitCodexTask(){
  if(codexPending)return;
- try{const p=codexStartPayload($('codex-folder').value,$('codex-task').value,$('codex-confirm').checked,rows);
+ try{const p=codexStartPayload($('codex-folder').value,$('codex-task').value,true,rows);
   codexPending={...p,at:Date.now()/1000};$('codex-submit').disabled=true;$('codex-pending-review').hidden=false;$('codex-reviewed').checked=false;
   setText($('codex-start-status'),'Request sent. Inspect Agents before retrying; sending is not completion.');command('codex-start','',p);
  }catch(e){setText($('codex-start-status'),e.message);}
 }
 function codexNativeCancelled(id){
  if(!codexPending||codexPending.requestId!==id)return;
- codexPending=null;$('codex-submit').disabled=false;$('codex-confirm').checked=false;$('codex-pending-review').hidden=true;
+ codexPending=null;$('codex-submit').disabled=false;$('codex-pending-review').hidden=true;
  setText($('codex-start-status'),'Task was not started. Select a valid project and confirm when ready.');
+}
+function codexNativeError(value){
+ if(!codexPending||!value||codexPending.requestId!==value.id)return;
+ codexPending=null;$('codex-submit').disabled=false;$('codex-pending-review').hidden=true;
+ setText($('codex-start-status'),typeof value.error==='string'?value.error:'Codex task was not started.');
 }
 function reviewCodexPending(){
  if(!codexPending||$('codex-reviewed').checked!==true)return;
- codexPending=null;$('codex-submit').disabled=false;$('codex-confirm').checked=false;$('codex-pending-review').hidden=true;
+ codexPending=null;$('codex-submit').disabled=false;$('codex-pending-review').hidden=true;
  setText($('codex-start-status'),'Form unlocked after your review. No retry was sent. Confirm the scope again before a new submission.');
 }
 function continueCodexTask(r,text){
@@ -438,7 +443,7 @@ let fitting=0,later=0;function fit(now,keep){if(mode==='shelf'){const h=$('shelf
   const id=mode==='shelf'?previewId():'',n=mode==='view'?document.querySelector('#body .mini'):id&&(id===expanded?chipOf(id)?.querySelector('.mini'):chipOf(id)?.querySelector('.thumb'));
   if(id!==previewing&&mode==='shelf'){previewing=id;post({action:'hover',id});}
   if(n&&!moving){const r=n.getBoundingClientRect();post({action:'miniRect',rect:[r.x,r.y,r.width,r.height],clip:[r.x,r.y,r.width,r.height],opacity:1,fill:n.classList.contains('thumb')});}else post({action:'miniRect',rect:[0,0,0,0],clip:[0,0,0,0],opacity:0});});}
-window.agents={codexStartCancelled(value){codexNativeCancelled(value);},codexFolder(value){if(typeof value==='string'&&value.startsWith('/')){$('codex-folder').value=value;$('codex-confirm').checked=false;}},mode(value){mode=value;document.body.classList.toggle('view',mode==='view');mode==='view'?renderView():renderShelf();},list(value){rows=value;codexObserve(rows);listed=true;for(const r of rows)if(fin(r)&&!onScreen.has(r.id))onScreen.set(r.id,age(r));mode==='view'?renderView():renderShelf();},chats(value){chatRows=value;if(mode==='view')renderView();},named(value){namedRows=value;if(mode==='view')renderList();},namedReply(value){showNamedStatus(value);},
+window.agents={codexStartError(value){codexNativeError(value);},codexStartCancelled(value){codexNativeCancelled(value);},codexFolder(value){if(typeof value==='string'&&value.startsWith('/')){$('codex-folder').value=value;setText($('codex-scope-status'),'Selected project: '+value);}},mode(value){mode=value;document.body.classList.toggle('view',mode==='view');mode==='view'?renderView():renderShelf();},list(value){rows=value;codexObserve(rows);listed=true;for(const r of rows)if(fin(r)&&!onScreen.has(r.id))onScreen.set(r.id,age(r));mode==='view'?renderView():renderShelf();},chats(value){chatRows=value;if(mode==='view')renderView();},named(value){namedRows=value;if(mode==='view')renderList();},namedReply(value){showNamedStatus(value);},
  state(r){const i=rows.findIndex(x=>x.id===r.id),old=rows[i],committed=i>=0&&old.textVersion!==r.textVersion;if(i<0)rows.unshift(r);else rows[i]=r;codexObserve([r]);if(committed||r.status!=='running')liveText.delete(r.id);
   if(!fin(r))onScreen.delete(r.id);else if(!old||!fin(old)||old.seenAt!==r.seenAt)onScreen.set(r.id,age(r));   // just finished or its card just shown: a fresh 10 minutes
   if(old&&!fin(old)&&fin(r)){dismissed.delete(r.id);if(over?.dataset.id===r.id)held=r.id;}   // a finish is news: hidden while it worked, or cleared before a follow-up, it shows again done
@@ -459,7 +464,7 @@ window.agents={codexStartCancelled(value){codexNativeCancelled(value);},codexFol
  text({id,text}){liveText.set(id,(liveText.get(id)||'')+text);if(mode==='view'&&selected===id&&!textFrame)textFrame=requestAnimationFrame(()=>{textFrame=0;if(mode==='view')renderView();});},select(id){selected=id;if(chatRows.some(r=>r.id===id))tab='chats';else if(rows.some(r=>r.id===id))tab='';renderView();},visible(value){visible=value;},
  resume(){if(mode==='shelf'){visible=true;previewing='';renderShelf();}},
  mini(value){const id=mode==='view'?selected:previewId(),n=document.querySelector('[data-mini="'+id+'"]');if(n){n.dataset.live=value.live?'true':'';setText(n,value.live?'':value.window||value.app||'Window');}fit();}};
-$('new-codex').onclick=()=>{$('codex-create').hidden=false;$('codex-folder').focus();};
+$('new-codex').onclick=()=>{$('codex-create').hidden=false;if(!codexPending){$('codex-folder').value='';setText($('codex-scope-status'),'Automatic project selection');}$('codex-task').focus();};
 $('codex-choose').onclick=()=>command('choose-codex-folder','');
 $('codex-dismiss').onclick=()=>{$('codex-create').hidden=true;};
 $('codex-unlock').onclick=reviewCodexPending;

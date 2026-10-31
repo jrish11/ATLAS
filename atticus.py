@@ -5845,26 +5845,37 @@ class Agents:
         with self.lock:
             if action == 'personal-open': self.personal_open(data)
             elif action == 'codex-start':
-                if not trusted_native_context_parent():
-                    self.emit({'event':'error', 'error':'Codex tasks require the native owner confirmation channel.'}); return
-                # Dedicated user action: project scope and task must be explicit.
                 folder, task, request = data.get('folder'), data.get('task'), data.get('requestId')
+                def rejected(message):
+                    safe_id=request if isinstance(request,str) and re.fullmatch(r'[a-f0-9-]{36}',request) else ''
+                    self.emit({'event':'codex-start-error','requestId':safe_id,'error':message})
+                if not trusted_native_context_parent():
+                    rejected('Codex tasks require the native owner confirmation channel.'); return
+                # Dedicated user action: project scope and task must be explicit.
                 if data.get('confirmed') is not True or not isinstance(request, str) or not re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}', request):
-                    self.emit({'event':'error', 'error':'Confirm project scope before starting Codex.'}); return
+                    rejected('Confirm project scope before starting Codex.'); return
                 if not isinstance(folder, str) or not os.path.isabs(folder) or not os.path.isdir(folder) or not isinstance(task, str) or not task.strip() or len(task) > 4000:
-                    self.emit({'event': 'error', 'error': 'Choose an existing project folder and provide a task.'}); return
+                    rejected('Choose an existing project folder and provide a task.'); return
                 folder, task = os.path.realpath(folder), task.strip()
                 identity = data.get('folderIdentity')
                 if not codex_project_matches(folder, identity):
-                    self.emit({'event':'error', 'error':'The confirmed project folder changed or is unavailable.'}); return
+                    rejected('The confirmed project folder changed or is unavailable.'); return
                 existing = next((r for r in self.rows.values() if r.get('codexClientRequest') == request), None)
                 if existing:
                     if existing.get('folder') != folder or existing.get('brief') != task:
-                        self.emit({'event':'error', 'error':'Request identifier conflict; no task was started.'}); return
+                        rejected('Request identifier conflict; no task was started.'); return
                     self.emit({'event':'state', 'agent':existing}); return
-                row = self.new()
-                row.update(provider='codex', folder=folder, title=agent_title(task), brief=task, context='', status='offered', codexClientRequest=request, codexProjectIdentity=identity)
-                self.rows[row['id']] = row; self.save(row); self.start(row['id'], task, evidence=task)
+                duplicate = next((r for r in self.rows.values() if r.get('provider')=='codex' and r.get('folder')==folder and r.get('brief')==task and (r.get('status') in ('running','needs-you','waiting-screen','queued') or r.get('cancelReviewRequired'))),None)
+                if duplicate:
+                    rejected('A matching Codex task is active or needs cancellation review; inspect it before retrying.'); return
+                try:
+                    row = self.new()
+                    row.update(provider='codex', folder=folder, title=agent_title(task), brief=task, context='', status='offered', codexClientRequest=request, codexProjectIdentity=identity)
+                    self.rows[row['id']] = row; self.save(row)
+                    if row.get('_directoryLost'): rejected('Could not safely save the Codex task.'); return
+                except OSError:
+                    rejected('Could not safely save the Codex task.'); return
+                self.start(row['id'], task, evidence=task)
             elif action == 'select-project' and identifier in self.rows:
                 row, folder = self.rows[identifier], data.get('folder')
                 # Only an explicitly confirmed choice may scope an unstarted Codex offer.
@@ -8248,6 +8259,80 @@ def feedback(data):
             'url': 'https://github.com/SaarthurR/atticus-mac/issues/new?' + urllib.parse.urlencode({'title': 'Atticus feedback', 'body': body})}
 
 
+def codex_workspace_proposal(directory, task, request_id):
+    """Resolve only owner-confirmed exact aliases; otherwise propose a fixed workspace."""
+    if not isinstance(task,str) or not task.strip() or len(task)>4000: raise ValueError('A task is required.')
+    if not isinstance(request_id,str) or not re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}',request_id): raise ValueError('A request ID is required.')
+    path=os.path.join(directory,'projects.json')
+    try:
+        fd=os.open(path,os.O_RDONLY|getattr(os,'O_NOFOLLOW',0)|getattr(os,'O_NONBLOCK',0))
+    except FileNotFoundError: rows=[]
+    except OSError: return {'status':'invalid'}
+    else:
+        try:
+            with os.fdopen(fd,'rb') as source:
+                info=os.fstat(source.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_size>1000000: return {'status':'invalid'}
+                data=source.read(1000001);after=os.fstat(source.fileno())
+            current=os.stat(path,follow_symlinks=False)
+            if len(data)>1000000 or any((item.st_dev,item.st_ino,item.st_size,item.st_mtime_ns)!=(info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns) for item in (after,current)):return {'status':'invalid'}
+            rows=json.loads(data)
+            if not isinstance(rows,list): return {'status':'invalid'}
+        except (OSError,ValueError,TypeError): return {'status':'invalid'}
+    normalized=personal_commands.normalize(task);hits=[]
+    for row in rows:
+        if not isinstance(row,dict) or not isinstance(row.get('aliases'),list): return {'status':'invalid'}
+        if row.get('confirmed') is not True: continue
+        if any(not isinstance(alias,str) or not re.fullmatch(r'[a-z0-9]+(?: [a-z0-9]+)*',alias) for alias in row['aliases']): return {'status':'invalid'}
+        positions=[]
+        for alias in row['aliases']:
+            positions.extend(re.finditer(r'(?<![a-z0-9])'+re.escape(alias)+r'(?![a-z0-9])',normalized))
+        if positions:hits.append((row,positions))
+    if len(hits)>1:return {'status':'ambiguous'}
+    # Negated, comparative and multi-goal requests are not a positive scope.
+    negative=r'\b(?:no|not|never|avoid|stop|exclude|excluding|except|unless|without|refrain|prevent|prohibit|(?:don|doesn|didn|can|couldn|shouldn|wouldn|won|mustn|isn|aren|wasn|weren)\s*t)\b|\bleave\b.*\balone\b'
+    if re.search(negative,normalized):return {'status':'ambiguous'}
+    incidental=r'\b(?:unrelated|instead|rather|inspired|similar|like|example|reference)\b'
+    multiple_goals=(re.search(r'\b(?:and|then|also)\b',normalized) and
+                    re.search(r'\bnew\s+(?:app|application|website|site|calendar|project|repo|repository)\b',normalized))
+    if hits and (re.search(incidental,normalized) or multiple_goals):return {'status':'ambiguous'}
+    if hits:
+        row,positions=hits[0]
+        bound=any(re.search(r'(?:\b(?:on|in|within)\s+(?:(?:the|my|our)\s+)?(?:(?:project|repo|repository)\s+)?|\b(?:fix|update|edit|change|review|continue|modify|debug|repair|refactor|improve|inspect)\s+(?:(?:the|my|our)\s+)?(?:(?:project|repo|repository)\s+)?|\b(?:project|repo|repository)\s+(?:(?:named|called)\s+)?|\b(?:tests?|docs?|documentation|specs?|readme)\s+for\s+)$',normalized[:m.start()]) for m in positions)
+        if not bound:return {'status':'ambiguous'}
+        folder=row.get('folder')
+        if not isinstance(folder,str) or not os.path.isabs(folder) or not os.path.isdir(folder):return {'status':'unavailable'}
+        return {'status':'matched','folder':os.path.realpath(folder)}
+    # Unresolved existing-work or task-artifact references never create a project.
+    if re.search(r'\b(?:fix|update|edit|change|review|continue|modify|debug|repair|refactor|improve|inspect)\b|\b(?:existing|saved|current|my|our)\s+(?:project|repo|repository|website|site|app|codebase)\b|\b(?:codex|work)\s+(?:on|in|for)\s+\w+|\b(?:write|create|add|generate|build|make)\s+(?:(?:new|unit|integration|automated)\s+){0,2}(?:tests?|docs?|documentation|specs?|readme)\s+(?:for|in|on|of)\s+\w+',normalized):return {'status':'ambiguous'}
+    # Only a clear standalone creation intent may use a fresh workspace.
+    if not re.search(r'\b(?:build|create|make|start|design|generate|draft|write|new)\b',normalized):return {'status':'ambiguous'}
+    if re.search(r'\b(?:for|in|on|within|inside|against|from|based|inspired|similar|like|example|reference)\s+(?!(?:me|myself)\b)[a-z0-9]+',normalized):return {'status':'ambiguous'}
+    return {'status':'managed','folder':os.path.join(directory,'workspaces','task-'+request_id)}
+
+
+def create_codex_workspace(directory, request_id):
+    """Create one new private task workspace, without following symlinks."""
+    if not isinstance(request_id,str) or not re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}',request_id): raise ValueError('A request ID is required.')
+    if not os.path.isabs(directory) or os.path.realpath(directory)!=directory: raise ValueError('App data folder changed.')
+    base=os.open(directory,os.O_RDONLY|os.O_DIRECTORY|getattr(os,'O_NOFOLLOW',0));current=base
+    try:
+        for index,name in enumerate(('workspaces','task-'+request_id)):
+            try: os.mkdir(name,0o700,dir_fd=current)
+            except FileExistsError:
+                if index==1: raise ValueError('The new workspace already exists.')
+            nextfd=os.open(name,os.O_RDONLY|os.O_DIRECTORY|getattr(os,'O_NOFOLLOW',0),dir_fd=current)
+            if current != base: os.close(current)
+            current=nextfd
+            info=os.fstat(current)
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode & 0o077:
+                raise ValueError('Workspace permissions are unsafe.')
+        return {'folder':os.path.join(directory,'workspaces','task-'+request_id),'identity':{'device':info.st_dev,'inode':info.st_ino}}
+    finally:
+        if current != base: os.close(current)
+        os.close(base)
+
+
 def trusted_native_context_parent():
     """Check the kernel-reported parent executable; never trust a claimed PID."""
     if sys.platform != 'darwin' or os.environ.get('ATTICUS_UI')!='1' or os.environ.get('ATTICUS_AGENT') or os.environ.get('ATTICUS_ASK'): return False
@@ -8325,6 +8410,16 @@ def main():
         return print(json.dumps(routine_pop()))
     if args[:1] == ['--agent-notify']:
         return osa('on run argv\ndisplay notification (item 1 of argv) with title "Atticus"\nend run', ' '.join(args[1:])[:2000])
+    if args == ['--codex-workspace']:
+        if not trusted_native_context_parent(): return print(json.dumps({'status':'denied'}))
+        try:
+            item=json.load(sys.stdin)
+            if not isinstance(item,dict): raise ValueError('Invalid request.')
+            if item.get('action')=='proposal': result=codex_workspace_proposal(DIR,item.get('task'),item.get('requestId'))
+            elif item.get('action')=='create' and item.get('confirmed') is True: result=create_codex_workspace(DIR,item.get('requestId'))
+            else: raise ValueError('Invalid request.')
+        except (OSError,ValueError,TypeError): result={'status':'error'}
+        return print(json.dumps(result))
     if args == ['--agents']:
         return agents_service()
     if args == ['--feedback']:

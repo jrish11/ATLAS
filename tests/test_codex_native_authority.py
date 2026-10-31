@@ -22,7 +22,7 @@ class CodexNativeAuthorityTests(unittest.TestCase):
    link=Path(d)/'link';link.symlink_to(root,target_is_directory=True);self.assertFalse(atticus.codex_project_matches(str(link),identity))
  def test_native_confirms_exact_task_and_rechecks_approval(self):
   swift=(Path(__file__).resolve().parents[1]/'Atticus.swift').read_text()
-  block=swift.split('        case "codex-start":',1)[1].split('        default: send(body)',1)[0]
+  block=swift.split('    @discardableResult func startCodexRequest(',1)[1].split('        default: send(body)',1)[0]
   self.assertIn('Project: "+canonical',block);self.assertIn('Task: "+task',block)
   self.assertIn('alert.runModal() == .alertFirstButtonReturn',block)
   self.assertIn('decision == .alertFirstButtonReturn ? "y" : "n"',block);self.assertIn('send(reply);return',block)

@@ -280,8 +280,15 @@ class CodexProvider:
             project=normalize(cwd);owner=normalize(home)
             if os.path.commonpath((project,owner))==project:
                 raise ProviderError('The project must not contain the home directory or account state.')
+            dev_root=normalize(os.path.join(home,'.config','atticus-personal-dev'))
+            managed_root=os.path.join(dev_root,'workspaces')
+            task_name=os.path.basename(project)
+            managed_ok=(os.path.dirname(project)==managed_root and
+                        re.fullmatch(r'task-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}',task_name) is not None and
+                        normalize(os.environ.get('ATTICUS_DIR',''))==dev_root and os.path.realpath(cwd)==os.path.abspath(cwd))
             for path in protected:
                 path=normalize(os.path.expanduser(path))
+                if managed_ok and path==dev_root: continue
                 if os.path.commonpath((project,path)) in (project,path):
                     raise ProviderError('The project overlaps protected account or Atticus state.')
         return os.path.realpath(cwd)

@@ -367,13 +367,13 @@ class AgentManagerIntegrationTests(unittest.TestCase):
     def test_start_rejects_missing_project(self):
         import atticus
         from unittest.mock import patch
-        with tempfile.TemporaryDirectory() as d, patch.object(atticus, 'DIR', d):
+        with tempfile.TemporaryDirectory() as d, patch.object(atticus, 'DIR', d), patch.object(atticus,'trusted_native_context_parent',return_value=True):
             events = []
             manager = atticus.Agents(emit=events.append)
             self.addCleanup(manager.close)
-            manager.command({'action':'codex-start', 'folder':'relative', 'task':'task'})
+            manager.command({'action':'codex-start','folder':'relative','task':'task','confirmed':True,'requestId':'12345678-1234-4123-8123-123456789abc'})
             self.assertFalse(manager.rows)
-            self.assertEqual(events[-1]['event'], 'error')
+            self.assertEqual(events[-1]['event'],'codex-start-error');self.assertIn('project folder',events[-1]['error'])
 
 class ProjectRoutingTests(unittest.TestCase):
     def test_confirmed_projects_resolve_and_ambiguity_does_not_guess(self):
