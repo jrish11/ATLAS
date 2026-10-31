@@ -51,6 +51,12 @@ This repository uses sanitized snapshot commits/tags, not rewritten original dev
 
 For v3.6: 139 focused synthetic regression tests and 17 packaging tests passed. Prior v3.5 included 102 focused checks and 13 additional bounded intent probes. Both sanitized ZIP variants passed relocated signatures, native self-tests and 37 resource hashes. Native self-tests do not establish microphone/audio/UI behavior. See [test evidence](docs/TEST-EVIDENCE.md). Run the bounded offline checks with `bash scripts/run-offline-checks.sh`; no model/provider request is required.
 
+## Repository security and contributor history
+
+[Security policy and private reporting](SECURITY.md) describes safe reporting. Private vulnerability reporting and Dependabot alerts are enabled. CodeQL default setup has been configured for initial validation on standard runners; a successful completed scan and full-language coverage are not yet claimed. Secret scanning/push protection remain enabled; automatic dependency fixes remain disabled.
+
+The GitHub Compare & pull request banners are development-branch notices. Claude/Cursor contributor avatars originate in the retained upstream history; new ATLAS exports have no coauthor trailers. See [maintainer/tooling and provenance](docs/ATTRIBUTION.md).
+
 ## Attribution
 
 [Atticus](https://github.com/SaarthurR/atticus-mac): MIT, Copyright (c) 2026 SaarthurR. [Plip](https://github.com/hussainn7/plip-oss): MIT, Copyright (c) 2026 Hussain. Preserve [LICENSE](LICENSE) and [LICENSE-Plip](LICENSE-Plip). The upstream README also credits [Cua Driver](https://github.com/trycua/cua) ideas for background key authentication/menu shortcuts. This fork is not an endorsement by those projects. The original README is retained under `docs/UPSTREAM-README.md`.
