@@ -137,7 +137,43 @@ import Darwin
                 try reject("replay after activation"){_=try UpdateInstallerEngine.perform(request:request,extractor:secret,hooks:hooks)}
                 if mode=="ack" {
                     usleep(1_000_000) // confirmed synthetic new app has ended; no owner process involved
-                    let restore=UpdateInstallerRequest(schema:1,parentPID:getpid(),target:target.path,stateDirectory:state.path,expectedTarget:identity,archive:"",manifest:Data(),signature:Data(),includePrereleases:false,nonce:try UpdateInstallerIO.nonce(),restoreTransaction:result.transaction)
+                    let restore=UpdateInstallerRequest(schema:1,parentPID:getpid(),target:target.path,stateDirectory:state.path,expectedTarget:identity,archive:"",manifest:Data(),signature:Data(),includePrereleases:false,nonce:try UpdateInstallerIO.nonce(),restoreTransaction:result.transaction,expectedBackup:old)
+                    let journal=state.appendingPathComponent("transactions").appendingPathComponent(result.transaction+".json")
+                    let journalBytes=try Data(contentsOf:journal)
+                    let backup=area.appendingPathComponent(inspection[0].record.backup)
+                    for phase in ["beforeHandoff","afterReady"] {
+                        let saved=area.appendingPathComponent("saved-original-"+phase+".app")
+                        let replacement=area.appendingPathComponent("alternate-"+phase+".app")
+                        try bundle(replacement,build:1,mode:"wrongAck")
+                        let alternate=try UpdateBundleValidation.verify(replacement)
+                        try check(alternate != old,"substitute backup has a different valid signed identity")
+                        var changed=false,readyForRestore=false,restoreLaunched=false
+                        func substituteBackup()throws {
+                            try fm.moveItem(at:backup,to:saved);try fm.moveItem(at:replacement,to:backup)
+                            var object=try JSONSerialization.jsonObject(with:journalBytes) as! [String:Any]
+                            object["old"]=try JSONSerialization.jsonObject(with:JSONEncoder().encode(alternate))
+                            var node=stat();guard lstat(backup.path,&node)==0 else{throw SignedUpdateError.rejected("fixture stat")}
+                            object["oldNode"]="\(node.st_dev):\(node.st_ino)"
+                            try JSONSerialization.data(withJSONObject:object,options:.sortedKeys).write(to:journal,options:.atomic)
+                            try fm.setAttributes([.posixPermissions:0o600],ofItemAtPath:journal.path)
+                            changed=true
+                            // The replaced journal+backup is internally valid;
+                            // consent, rather than a damaged signature, rejects it.
+                            let accepted=try store.recover()
+                            try check(accepted[0].disposition=="launched" && accepted[0].record.old==alternate,"substituted private journal remains internally consistent")
+                        }
+                        var guarded=hooks
+                        guarded.ready={_ in readyForRestore=true;if phase=="afterReady"{try substituteBackup()}}
+                        guarded.launch={_,_,_,_ in restoreLaunched=true;return .acknowledged}
+                        if phase=="beforeHandoff" {try substituteBackup()}
+                        try reject("backup consent binding "+phase){_=try UpdateInstallerEngine.restore(request:restore,hooks:guarded)}
+                        try check(changed && readyForRestore==(phase=="afterReady") && !restoreLaunched,"changed backup refused at correct handshake boundary")
+                        try check(try UpdateBundleValidation.verify(target)==identity,"backup substitution never swaps current app")
+                        try fm.removeItem(at:backup);try fm.moveItem(at:saved,to:backup)
+                        try journalBytes.write(to:journal,options:.atomic);try fm.setAttributes([.posixPermissions:0o600],ofItemAtPath:journal.path)
+                    }
+                    var noBinding=restore;noBinding.expectedBackup=nil
+                    try reject("restore without displayed backup binding"){_=try UpdateInstallerEngine.restore(request:noBinding,hooks:hooks)}
                     var holder:UpdateInstallationInterlock?=try UpdateInstallationInterlock.fixtureShared(target:target,state:state)
                     try reject("explicit restore refuses a live startup holder"){_=try UpdateInstallerEngine.restore(request:restore,hooks:hooks)}
                     try check(try UpdateBundleValidation.verify(target)==identity,"blocked restore preserves current app")

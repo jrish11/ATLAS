@@ -112,7 +112,7 @@ import AppKit
         restoreTask=Task {
             defer{restoring=false;restoreTask=nil;refresh()}
             do {
-                let process=try await Task.detached{try UpdateInstallerLauncher.startRollback(transactionID:record.id,target:target,stateDirectory:state,parentPID:getpid())}.value
+                let process=try await Task.detached{try UpdateInstallerLauncher.startRollback(transactionID:record.id,expectedBackup:record.old,target:target,stateDirectory:state,parentPID:getpid())}.value
                 guard !Task.isCancelled,isIdle() else{if process.isRunning{process.terminate()};throw SignedUpdateError.rejected("Restore cancelled before ATLAS quit. Inspect the transaction before retrying.")}
                 NSApplication.shared.terminate(nil)
             }catch{alert(SignedUpdateCoordinator.safeMessage(error))}

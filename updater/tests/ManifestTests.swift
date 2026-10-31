@@ -40,6 +40,10 @@ struct ManifestTestFailure: Error { let message: String }
         for invalid in ["2026-02-30T12:00:00Z","2026-11-31T12:00:00Z","2026-10-31T24:00:00Z"] {
             try reject("Impossible calendar timestamp") { _=try UpdateManifestVerifier.date(invalid) }
         }
+        do {
+            _=try verify(raw,signature,key,installed:.init(version:"v3.7",build:37,epoch:1),receipt:.init(highestSequence:7,lastTrustedTime:now))
+            preconditionFailure("Current release became installable")
+        }catch SignedUpdateError.current {try check(true,"Authenticated current feed is not installable")}
         let accepted=try verify(raw,signature,key)
         try check(accepted.build==37 && accepted.sequence==7 && accepted.architecture=="arm64","Signed fixture accepted")
         try check(accepted.rawManifest==raw && accepted.rawSignature==signature,"Exact signed bytes retained")

@@ -67,7 +67,7 @@ final class UpdateReceiptStore: @unchecked Sendable {
     }
 }
 
-enum SignedUpdatePhase:Equatable {case idle,checking,available,downloading,prepared,installing,cancelled,blocked,failed}
+enum SignedUpdatePhase:Equatable {case idle,current,checking,available,downloading,prepared,installing,cancelled,blocked,failed}
 
 private final class UpdateCancellation: @unchecked Sendable {
     private let lock=NSLock();private var stopped=false
@@ -108,7 +108,8 @@ private final class UpdateCancellation: @unchecked Sendable {
                 let authenticated=try await UpdateManifestVerifier.verify(raw:raw,signature:sig,installed:installed,receipt:receipt,machine:machine,macOS:macOS,includePrereleases:includePrereleases)
                 try Task.checkCancellation();guard generation==id else{return}
                 release=authenticated;phase = .available;message="Verified \(authenticated.version), build \(authenticated.build). Review the release notes before downloading.";changed?()
-            }catch{guard generation==id else{return};phase = Task.isCancelled ? .cancelled : .failed;message=Self.safeMessage(error);changed?()}
+            }catch SignedUpdateError.current{guard generation==id else{return};phase = .current;message=SignedUpdateError.current.localizedDescription;changed?()}
+            catch{guard generation==id else{return};phase = Task.isCancelled ? .cancelled : .failed;message=Self.safeMessage(error);changed?()}
         }
     }
     func download(installationParent:URL,extractor:URL){

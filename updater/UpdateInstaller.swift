@@ -17,6 +17,7 @@ struct UpdateInstallerRequest: Codable {
     let includePrereleases: Bool
     let nonce: String
     var restoreTransaction:String? = nil
+    var expectedBackup:UpdateBundleIdentity? = nil
 }
 
 struct UpdateInstallerEvent: Codable, Equatable {
@@ -230,7 +231,7 @@ enum UpdateInstallerEngine {
         }
     }
     static func restore(request:UpdateInstallerRequest,hooks:UpdateInstallerHooks)throws->UpdateInstallerResult {
-        guard request.schema==1,request.parentPID>1,UpdateInstallerIO.validNonce(request.nonce),let id=request.restoreTransaction,UUID(uuidString:id) != nil else{throw UpdateInstallerIO.reject("Malformed local-backup restore request.")}
+        guard request.schema==1,request.parentPID>1,UpdateInstallerIO.validNonce(request.nonce),let id=request.restoreTransaction,UUID(uuidString:id) != nil,let approvedBackup=request.expectedBackup else{throw UpdateInstallerIO.reject("Malformed local-backup restore request.")}
         let target=URL(fileURLWithPath:request.target),parent=target.deletingLastPathComponent(),state=URL(fileURLWithPath:request.stateDirectory)
         guard try UpdateInstallerIO.canonicalPath(target.path)==target.path else{throw UpdateInstallerIO.reject("Unsafe local-backup restore target.")}
         try UpdateInstallationInterlock.requireProtocol(target)
@@ -238,7 +239,7 @@ enum UpdateInstallerEngine {
         guard current==request.expectedTarget else{throw UpdateInstallerIO.reject("Current app changed before restore confirmation.")}
         let store=try UpdateTransactionStore(installationParent:parent,stateDirectory:state.appendingPathComponent("transactions"),verifyBundle:{try hooks.verifyBundle($0,nil)})
         func selected()throws->UpdateTransactionRecord {
-            guard let item=try store.recover().first(where:{$0.record.id==id}),["launched","activeNeedsLaunchConfirmation"].contains(item.disposition),item.record.target==target.lastPathComponent,item.record.new==current else{throw UpdateInstallerIO.reject("The selected local backup is no longer restorable.")}
+            guard let item=try store.recover().first(where:{$0.record.id==id}),["launched","activeNeedsLaunchConfirmation"].contains(item.disposition),item.record.target==target.lastPathComponent,item.record.new==current,item.record.old==approvedBackup else{throw UpdateInstallerIO.reject("The selected local backup is no longer restorable.")}
             let backup=parent.appendingPathComponent(item.record.backup)
             try UpdateInstallationInterlock.requireProtocol(backup)
             guard try hooks.verifyBundle(backup,nil)==item.record.old else{throw UpdateInstallerIO.reject("Saved local backup identity changed.")}
@@ -374,13 +375,13 @@ enum UpdateInstallerLauncher {
         let request=UpdateInstallerRequest(schema:1,parentPID:parentPID,target:target.path,stateDirectory:stateDirectory.path,expectedTarget:identity,archive:prepared.archive.path,manifest:prepared.release.rawManifest,signature:prepared.release.rawSignature,includePrereleases:prepared.release.channel=="prerelease",nonce:nonce)
         return try launch(request:request,target:target)
     }
-    static func startRollback(transactionID:String,target:URL,stateDirectory:URL,parentPID:pid_t)throws->Process {
+    static func startRollback(transactionID:String,expectedBackup:UpdateBundleIdentity,target:URL,stateDirectory:URL,parentPID:pid_t)throws->Process {
         guard UpdatePublisherTrust.configured else{throw UpdateInstallerIO.reject("Local-backup restore is disabled until updater trust is configured.")}
         guard UUID(uuidString:transactionID) != nil,parentPID==getpid(),stateDirectory.path==UpdateInstallerRuntime.stateDirectory().path else{throw UpdateInstallerIO.reject("Restore launch binding differs.")}
         try UpdateInstallationInterlock.requireProtocol(target)
         let identity=try UpdateBundleValidation.verify(target)
         try UpdateInstallerIO.verifyProcess(parentPID,executable:target.appendingPathComponent("Contents/MacOS/Atticus"))
-        let request=UpdateInstallerRequest(schema:1,parentPID:parentPID,target:target.path,stateDirectory:stateDirectory.path,expectedTarget:identity,archive:"",manifest:Data(),signature:Data(),includePrereleases:false,nonce:try UpdateInstallerIO.nonce(),restoreTransaction:transactionID)
+        let request=UpdateInstallerRequest(schema:1,parentPID:parentPID,target:target.path,stateDirectory:stateDirectory.path,expectedTarget:identity,archive:"",manifest:Data(),signature:Data(),includePrereleases:false,nonce:try UpdateInstallerIO.nonce(),restoreTransaction:transactionID,expectedBackup:expectedBackup)
         return try launch(request:request,target:target)
     }
     private static func launch(request:UpdateInstallerRequest,target:URL)throws->Process {

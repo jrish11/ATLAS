@@ -3,8 +3,8 @@ import CryptoKit
 import CoreFoundation
 
 enum SignedUpdateError: Error, LocalizedError {
-    case rejected(String)
-    var errorDescription: String? { if case let .rejected(message) = self { return message }; return nil }
+    case rejected(String), current
+    var errorDescription: String? {switch self{case .rejected(let message):return message;case .current:return "This installed build is current. No newer trusted update is available."}}
 }
 
 enum UpdateLimits {
@@ -149,7 +149,7 @@ enum UpdateManifestVerifier {
               let sha=archive["sha256"] as? String, sha.range(of:"^[a-f0-9]{64}$",options:.regularExpression) != nil
         else {throw SignedUpdateError.rejected("Unsupported release metadata.")}
         let seq=try number(obj["sequence"]), epoch=try number(obj["update_epoch"]), build=try number(obj["build"]), size=try number(archive["size"])
-        guard seq>receipt.highestSequence, epoch>=installed.epoch, build>installed.build, size>0, size<=UpdateLimits.archive,
+        guard epoch>=installed.epoch, size>0, size<=UpdateLimits.archive,
               now >= receipt.lastTrustedTime.addingTimeInterval(-300), try !components(minimum,prefix:false).lexicographicallyPrecedes(components("0.0",prefix:false))
         else {throw SignedUpdateError.rejected("Release order or trusted clock check failed.")}
         let newVersion=try components(version), oldVersion=try components(installed.version)
@@ -159,6 +159,10 @@ enum UpdateManifestVerifier {
         guard urlText==expectedURL, url.user==nil, url.password==nil, url.fragment==nil else {throw SignedUpdateError.rejected("Unapproved update origin.")}
         let published=try date(obj["published_at"]), expires=try date(obj["expires_at"])
         guard published<=now.addingTimeInterval(300), published<expires, expires.timeIntervalSince(published)<=90*86400, now<expires else {throw SignedUpdateError.rejected("Release is expired or not yet valid.")}
+        // A current, authenticated, unexpired feed is a normal check result,
+        // never an installable object. Replayed older sequence remains rejected.
+        if seq>=receipt.highestSequence,epoch==installed.epoch,build==installed.build,newVersion==oldVersion {throw SignedUpdateError.current}
+        guard seq>receipt.highestSequence,build>installed.build else{throw SignedUpdateError.rejected("Release order or replay check failed.")}
         return AuthenticatedUpdate(version:version,sequence:seq,epoch:epoch,build:build,channel:channel,url:url,sha256:sha,size:size,
                                    minimumMacOS:minimum,architecture:machine,changelog:notes,expires:expires,manifestHash:SHA256.hash(data:raw).map{String(format:"%02x",$0)}.joined(),rawManifest:raw,rawSignature:signature)
     }
