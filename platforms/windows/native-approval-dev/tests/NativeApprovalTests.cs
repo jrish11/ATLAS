@@ -153,6 +153,11 @@ static class NativeApprovalTests
             string probeTemp = Path.GetFullPath(probeInfo.Environment["TEMP"]), forbidden = Path.GetFullPath(Path.Combine(layoutRoot, "outside"));
             Require(probeTemp == Path.GetFullPath(Path.Combine(layoutRoot, "runtime-temp")) && probeInfo.Environment["TMP"] == probeTemp, "probe temp isolated from outside target");
             Require(!forbidden.StartsWith(Path.TrimEndingDirectorySeparator(probeTemp) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase), "outside target is not under temp");
+            string redacted = NativeSandboxProbe.RedactScratch(layoutRoot + " " + layoutRoot.Replace("\\", "\\\\"), layoutRoot);
+            Require(redacted == "<scratch> <scratch>", "literal and JSON-escaped scratch paths redacted");
+            string isolatedProfile = Path.GetFullPath(Path.Combine(layoutRoot, "profile"));
+            string codexHome = Path.GetFullPath(probeInfo.Environment["CODEX_HOME"]);
+            Require(Directory.Exists(codexHome) && codexHome == Path.Combine(isolatedProfile, ".codex"), "isolated CODEX_HOME exists within profile");
             Require(probeInfo.ArgumentList.Contains("permissions.atlas_probe.network.enabled=false") && probeInfo.ArgumentList.Contains("windows.sandbox=\"mxc\""), "explicit MXC network-disabled policy");
             string commandText = File.ReadAllText(Path.Combine(layoutRoot, "project", "fixture.cmd"));
             Require(commandText.Contains("127.0.0.1", StringComparison.Ordinal) && commandText.Contains("32123", StringComparison.Ordinal) && commandText.Contains("exit 33", StringComparison.Ordinal), "loopback denial fixture distinguishes socket errors");

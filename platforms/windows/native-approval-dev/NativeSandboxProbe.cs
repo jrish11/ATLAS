@@ -9,6 +9,7 @@ namespace Atlas.NativeApprovalDev;
 
 internal static class NativeSandboxProbe
 {
+    internal static string RedactScratch(string message, string scratch) => message.Replace(scratch.Replace("\\", "\\\\"), "<scratch>", StringComparison.OrdinalIgnoreCase).Replace(scratch, "<scratch>", StringComparison.OrdinalIgnoreCase);
     private static async Task DrainBounded(Stream stream, CancellationToken stop)
     {
         var buffer = new byte[4096]; int count = 0, n;
@@ -54,7 +55,7 @@ internal static class NativeSandboxProbe
         if (listenerPort < 1 || listenerPort > 65535 || !Path.IsPathFullyQualified(scratch)) throw new InvalidOperationException("Valid isolated probe inputs are required.");
         if (scratch.Any(c => c > 127) || scratch.IndexOfAny(new[] { '%', '!', '&', '|', '<', '>', '^', '\r', '\n' }) >= 0) throw new InvalidOperationException("Unsafe scratch path for command interpreter.");
         string project = Path.Combine(scratch, "project"), outside = Path.Combine(scratch, "outside"), profile = Path.Combine(scratch, "profile"), temp = Path.Combine(scratch, "runtime-temp");
-        Directory.CreateDirectory(project); Directory.CreateDirectory(outside); Directory.CreateDirectory(temp); Directory.CreateDirectory(Path.Combine(profile, "appdata")); Directory.CreateDirectory(Path.Combine(profile, "local"));
+        Directory.CreateDirectory(project); Directory.CreateDirectory(outside); Directory.CreateDirectory(temp); Directory.CreateDirectory(Path.Combine(profile, "appdata")); Directory.CreateDirectory(Path.Combine(profile, "local")); Directory.CreateDirectory(Path.Combine(profile, ".codex"));
         string outsideFile = Path.Combine(outside, "must-not-be-written.txt"), script = Path.Combine(project, "fixture.cmd");
         string system = Environment.SystemDirectory, windows = Directory.GetParent(system)?.FullName ?? throw new InvalidOperationException("Windows directory unavailable.");
         string powershell = Path.Combine(system, "WindowsPowerShell", "v1.0", "powershell.exe");
@@ -93,7 +94,7 @@ internal static class NativeSandboxProbe
             if (!File.Exists(Path.Combine(scratch, "project", "inside.txt")) || File.Exists(Path.Combine(scratch, "outside", "must-not-be-written.txt")) || listener.Pending())
                 throw new InvalidOperationException("Scratch sandbox write or loopback network-denial probe did not pass.");
         }
-        catch (InvalidOperationException ex) { failure = ex; throw new InvalidOperationException(ex.Message.Replace(scratch, "<scratch>", StringComparison.OrdinalIgnoreCase)); }
+        catch (InvalidOperationException ex) { failure = ex; throw new InvalidOperationException(RedactScratch(ex.Message, scratch)); }
         catch (Exception ex) { failure = ex; throw; }
         finally
         {
