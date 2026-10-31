@@ -125,8 +125,13 @@ class LearningTests(unittest.TestCase):
         windir = os.environ.get('SystemRoot', r'C:\Windows')
         self.assertFalse(atticus.console_exe(os.path.join(windir, 'notepad.exe')))   # GUI: --help would open it
         self.assertTrue(atticus.console_exe(os.path.join(windir, 'System32', 'where.exe')))
-        with patch.object(atticus.subprocess, 'run') as run:
-            self.assertEqual(atticus.tool_help('open notepad and run where'), '')   # Windows' own folder
+        # Resolve explicitly to Windows' tools: Git's `where` can precede
+        # System32 on hosted runners, and is a different executable.
+        paths = {'notepad': os.path.join(windir, 'notepad.exe'),
+                 'where': os.path.join(windir, 'System32', 'where.exe')}
+        with patch.object(atticus.shutil, 'which', side_effect=lambda name: paths.get(name)), \
+             patch.object(atticus.subprocess, 'run') as run:
+            self.assertEqual(atticus.tool_help('open notepad and run where'), '')
         run.assert_not_called()
 
     def test_failure_reports_need_a_key_and_a_yes_and_are_cleaned(self):
