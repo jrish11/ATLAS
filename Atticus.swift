@@ -217,11 +217,19 @@ enum Prefs {
         guard !fileExists else { return }
         values["client"]="pi"; values["foregroundProvider"]="openai"; values["foregroundModel"]="gpt-6.1-terra"
     }
+    static func personalWakeDefaults(_ values: inout [String:Any], saved: [String:Any]) {
+        // Owner requested replacing the legacy default, including a saved exact match.
+        // Keep every other saved name and the existing listening switch unchanged.
+        if saved["wakeWordName"] == nil || saved["wakeWordName"] as? String == "Atticus" {
+            values["wakeWordName"] = "Atlas"
+        }
+    }
     static var d: [String: Any] = {
         let saved = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path)))) as? [String: Any] ?? [:]
         var values = defaults.merging(saved) { $1 }
         if Bundle.main.bundleIdentifier == "com.atticus.personal.dev" {
             personalFirstRunDefaults(&values,fileExists:FileManager.default.fileExists(atPath:path))
+            personalWakeDefaults(&values,saved:saved)
             values["legacyApiKeyPresent"] = !(saved["apiKey"] as? String ?? "").isEmpty
             values["legacyCodexApiKeyPresent"] = !(saved["codexApiKey"] as? String ?? "").isEmpty
             values["legacyForegroundOpenAIKeyPresent"] = !(saved["foregroundOpenAIKey"] as? String ?? "").isEmpty
@@ -2430,7 +2438,7 @@ final class App: NSObject, WKScriptMessageHandler {
     var wakeBackoff = 1.0, wakePermissionID = 0, wakeWhy = "?"
     static var wakeName: String {   // blank would match everything, so it falls back
         let name = Prefs.str("wakeWordName").trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? "Atticus" : name
+        return name.isEmpty ? (Bundle.main.bundleIdentifier == "com.atticus.personal.dev" ? "Atlas" : "Atticus") : name
     }
     static func hasWakeWord(_ text: String, word: String = "Atticus") -> Bool {
         text.range(of: #"(?i)(?<![\p{L}\p{N}_])"# + NSRegularExpression.escapedPattern(for: word) + #"(?![\p{L}\p{N}_])"#, options: .regularExpression) != nil
@@ -4252,7 +4260,7 @@ final class App: NSObject, WKScriptMessageHandler {
 
     func run(_ t: String, speculative: Bool = false, remaining: String? = nil, tryPersonal: Bool = true) {
         // Only confirmed whole requests can reach the resident personal route.
-        let words = transcriptKey(t).replacingOccurrences(of: #"^(?:(?:hey|ok|okay|atticus|please|also|and|now|then|can you|could you|would you|will you)[,\s]+)+"#, with: "", options: .regularExpression)
+        let words = transcriptKey(t).replacingOccurrences(of: #"^(?:(?:hey|ok|okay|atticus|atlas|please|also|and|now|then|can you|could you|would you|will you)[,\s]+)+"#, with: "", options: .regularExpression)
         let openIntent = words.range(of: #"^(?:open(?: up)?|launch|pull up|bring up|focus on|switch to|go to)\s+"#, options: .regularExpression) != nil
         if tryPersonal && !speculative && remaining == nil && openIntent && Prefs.bool("instant") && !Prefs.bool("paused") &&
             pointContext == nil && !drawing.hasInput && selection == nil && replyAgent.isEmpty {
@@ -4858,13 +4866,19 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
             alert.informativeText = "Confirm only after checking the work. If activity logging is enabled, Atticus will add its title to your selected vault."
             alert.addButton(withTitle: "I verified it"); alert.addButton(withTitle: "Cancel")
             if alert.runModal() == .alertFirstButtonReturn { send(["action":"verify-result", "id":id, "confirmed":true]) }
+        case "choose-codex-folder":
+            guard surface == "view" else {return}
+            let picker=NSOpenPanel();picker.canChooseDirectories=true;picker.canChooseFiles=false;picker.allowsMultipleSelection=false
+            picker.message="Choose the project for this Codex task. You will review its scope before starting."
+            guard picker.runModal() == .OK,let folder=picker.url?.resolvingSymlinksInPath().standardizedFileURL.path else {return}
+            js("view","codexFolder",folder)
         case "codex-start":
-            guard surface == "view", body["confirmed"] as? Bool == true, let folder=body["folder"] as? String, folder.hasPrefix("/"), let task=body["task"] as? String, !task.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, task.count<=4000, body["requestId"] is String else {return}
+            guard surface == "view", body["confirmed"] as? Bool == true, let folder=body["folder"] as? String, folder.hasPrefix("/"), let task=body["task"] as? String, !task.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, task.count<=4000, let requestID=body["requestId"] as? String else {return}
             let canonical=URL(fileURLWithPath:folder).resolvingSymlinksInPath().standardizedFileURL.path
-            guard let info=try? FileManager.default.attributesOfItem(atPath:canonical),let device=info[.systemNumber] as? NSNumber,let inode=info[.systemFileNumber] as? NSNumber,info[.type] as? FileAttributeType == .typeDirectory else {return}
+            guard let info=try? FileManager.default.attributesOfItem(atPath:canonical),let device=info[.systemNumber] as? NSNumber,let inode=info[.systemFileNumber] as? NSNumber,info[.type] as? FileAttributeType == .typeDirectory else {js("view","codexStartCancelled",requestID);return}
             let alert=NSAlert();alert.messageText="Start this Codex task?";alert.informativeText="Project: "+canonical+"\n\nTask: "+task+"\n\nCodex may read and change files in this project. Requests to expand permissions need your approval. Your existing ChatGPT account is used."
             alert.addButton(withTitle:"Start Codex task");alert.addButton(withTitle:"Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn,URL(fileURLWithPath:folder).resolvingSymlinksInPath().standardizedFileURL.path==canonical,let now=try? FileManager.default.attributesOfItem(atPath:canonical),(now[.systemNumber] as? NSNumber)==device,(now[.systemFileNumber] as? NSNumber)==inode,now[.type] as? FileAttributeType == .typeDirectory else {return}
+            guard alert.runModal() == .alertFirstButtonReturn,URL(fileURLWithPath:folder).resolvingSymlinksInPath().standardizedFileURL.path==canonical,let now=try? FileManager.default.attributesOfItem(atPath:canonical),(now[.systemNumber] as? NSNumber)==device,(now[.systemFileNumber] as? NSNumber)==inode,now[.type] as? FileAttributeType == .typeDirectory else {js("view","codexStartCancelled",requestID);return}
             var confirmed=body;confirmed["folder"]=canonical;confirmed["folderIdentity"]=["device":device,"inode":inode];send(confirmed)
         case "answer":
             if rows[id]?["provider"] as? String == "codex", body["answer"] as? String == "y" {
@@ -6149,6 +6163,10 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
                 if app.handsFree && app.engine.isRunning { app.hush() }
                 app.handsFree = false
             }
+        }
+        if k == "wakeWordName", Prefs.bool("wakeWord") {
+            // Recreate the on-device request with the newly saved contextual hint.
+            app.stopWake(); app.wakeRetry = .distantPast; app.wakeBackoff = 1
         }
         if k == "microphone" { app.stopWake() }
         if k == "draw", v as? Bool == false { app.drawing.clear(); app.unwarm() }
@@ -8758,6 +8776,20 @@ if CommandLine.arguments.dropFirst() == ["--selftest"] {
     precondition(transcriptKey("calculate 1.5") != transcriptKey("calculate 15"))
     precondition(transcriptKey("search a b") != transcriptKey("search ab"))
     precondition(transcriptKey("open a-b.com") != transcriptKey("open ab.com"))
+    for (saved, expected) in [([String:Any](), "Atlas"), (["wakeWordName":"Atticus"], "Atlas"), (["wakeWordName":"Friday"], "Friday"), (["wakeWordName":"Hey Atticus"], "Hey Atticus")] {
+        var values:[String:Any]=["wakeWordName":"Atticus","wakeWord":true]
+        values.merge(saved) { _, value in value }
+        Prefs.personalWakeDefaults(&values,saved:saved)
+        precondition(values["wakeWordName"] as? String == expected && values["wakeWord"] as? Bool == true)
+    }
+    for enabled in [false,true] {
+        let saved:[String:Any] = ["wakeWordName":"Atticus", "wakeWord":enabled]
+        var values=saved;Prefs.personalWakeDefaults(&values,saved:saved)
+        precondition(values["wakeWordName"] as? String == "Atlas" && values["wakeWord"] as? Bool == enabled)
+    }
+    for transcript in ["Atlas", "Hey Atlas", "HEY ATLAS!", "Hey, Atlas"] { precondition(App.hasWakeWord(transcript,word:"Atlas")) }
+    for transcript in ["atticus", "atlasx", "Atlases", "myAtlas", "atlas2"] { precondition(!App.hasWakeWord(transcript,word:"Atlas")) }
+    precondition(App.hasWakeWord("Hey Friday!",word:"Friday") && !App.hasWakeWord("Hey Atlas",word:"Friday"))
     var existing:[String:Any]=["client":"claude","foregroundModel":"legacy","other":"kept"]
     Prefs.personalFirstRunDefaults(&existing,fileExists:true);precondition(existing["client"] as? String == "claude" && existing["foregroundModel"] as? String == "legacy" && existing["other"] as? String == "kept")
     var fresh:[String:Any]=[:];Prefs.personalFirstRunDefaults(&fresh,fileExists:false);precondition(fresh["client"] as? String == "pi" && fresh["foregroundProvider"] as? String == "openai" && fresh["foregroundModel"] as? String == "gpt-6.1-terra")

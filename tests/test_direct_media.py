@@ -6,7 +6,7 @@ import atticus
 
 class DirectMediaTests(unittest.TestCase):
  def test_exact_intents_and_ambiguous_or_compound_refused(self):
-  cases={'set volume to 30 percent':{'kind':'volume','value':30},'turn volume down':{'kind':'volume_delta','value':-10},'turn down the volume':{'kind':'volume_delta','value':-10},'increase volume by 20':{'kind':'volume_delta','value':20},'pause spotify':{'kind':'transport','action':'pause','app':'spotify'},'quit apple music':{'kind':'quit_music'},'play blue moon on spotify':{'kind':'spotify_search','query':'blue moon'}}
+  cases={'set volume to 30 percent':{'kind':'volume','value':30},'turn volume down':{'kind':'volume_delta','value':-10},'hey atlas turn volume down':{'kind':'volume_delta','value':-10},'hey atticus turn volume down':{'kind':'volume_delta','value':-10},'turn down the volume':{'kind':'volume_delta','value':-10},'increase volume by 20':{'kind':'volume_delta','value':20},'pause spotify':{'kind':'transport','action':'pause','app':'spotify'},'quit apple music':{'kind':'quit_music'},'play blue moon on spotify':{'kind':'spotify_search','query':'blue moon'}}
   for text,expected in cases.items():self.assertEqual(atticus.direct_media_intent(text),expected)
   for text in ('play spotify and quit music','turn it down','quit music then delete files','play something','play x\x00on spotify'):
    self.assertIsNone(atticus.direct_media_intent(text))

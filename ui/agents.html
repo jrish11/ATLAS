@@ -141,8 +141,8 @@ footer { padding:12px 20px 16px; border-top:.5px solid var(--line) } .ask { disp
 <main><div id="scroll"><div id="page"><header><canvas data-size="38"></canvas><div class="t"><h1 id="title">Agents</h1><div class="status" id="status"></div></div><div class="actions" id="tools"></div></header>
 <p id="brief">Your tasks, while you do something else.</p>
 <section id="codex-create" hidden><form id="codex-form">
-<h2>Start a scoped Codex task</h2><p>Uses Codex authentication in Settings, separately from the foreground OpenAI API. Readiness checks can block unsupported configurations.</p>
-<label for="codex-folder">Project folder (absolute path)</label><input id="codex-folder" placeholder="/Users/you/Projects/example" maxlength="1024" autocomplete="off" spellcheck="false" required>
+<h2>Start a scoped Codex task</h2><p>Uses Codex authentication in Settings, separately from the foreground OpenAI API. Requires the supported Codex CLI and an existing ChatGPT account login. Readiness checks can block unsupported configurations.</p>
+<label for="codex-folder">Project folder (absolute path)</label><button id="codex-choose" type="button">Choose project folder…</button><input id="codex-folder" placeholder="/Users/you/Projects/example" maxlength="1024" autocomplete="off" spellcheck="false" required>
 <label for="codex-task">Task</label><textarea id="codex-task" maxlength="4000" rows="3" required></textarea>
 <label><input id="codex-confirm" type="checkbox"> I confirm this project scope and authorize this task within its sandbox. Permission expansion still requires approval.</label>
 <div class="actions"><button id="codex-submit" type="submit" class="go">Start Codex task</button><button id="codex-dismiss" type="button">Close</button></div>
@@ -201,6 +201,11 @@ function submitCodexTask(){
   codexPending={...p,at:Date.now()/1000};$('codex-submit').disabled=true;$('codex-pending-review').hidden=false;$('codex-reviewed').checked=false;
   setText($('codex-start-status'),'Request sent. Inspect Agents before retrying; sending is not completion.');command('codex-start','',p);
  }catch(e){setText($('codex-start-status'),e.message);}
+}
+function codexNativeCancelled(id){
+ if(!codexPending||codexPending.requestId!==id)return;
+ codexPending=null;$('codex-submit').disabled=false;$('codex-confirm').checked=false;$('codex-pending-review').hidden=true;
+ setText($('codex-start-status'),'Task was not started. Select a valid project and confirm when ready.');
 }
 function reviewCodexPending(){
  if(!codexPending||$('codex-reviewed').checked!==true)return;
@@ -433,7 +438,7 @@ let fitting=0,later=0;function fit(now,keep){if(mode==='shelf'){const h=$('shelf
   const id=mode==='shelf'?previewId():'',n=mode==='view'?document.querySelector('#body .mini'):id&&(id===expanded?chipOf(id)?.querySelector('.mini'):chipOf(id)?.querySelector('.thumb'));
   if(id!==previewing&&mode==='shelf'){previewing=id;post({action:'hover',id});}
   if(n&&!moving){const r=n.getBoundingClientRect();post({action:'miniRect',rect:[r.x,r.y,r.width,r.height],clip:[r.x,r.y,r.width,r.height],opacity:1,fill:n.classList.contains('thumb')});}else post({action:'miniRect',rect:[0,0,0,0],clip:[0,0,0,0],opacity:0});});}
-window.agents={mode(value){mode=value;document.body.classList.toggle('view',mode==='view');mode==='view'?renderView():renderShelf();},list(value){rows=value;codexObserve(rows);listed=true;for(const r of rows)if(fin(r)&&!onScreen.has(r.id))onScreen.set(r.id,age(r));mode==='view'?renderView():renderShelf();},chats(value){chatRows=value;if(mode==='view')renderView();},named(value){namedRows=value;if(mode==='view')renderList();},namedReply(value){showNamedStatus(value);},
+window.agents={codexStartCancelled(value){codexNativeCancelled(value);},codexFolder(value){if(typeof value==='string'&&value.startsWith('/')){$('codex-folder').value=value;$('codex-confirm').checked=false;}},mode(value){mode=value;document.body.classList.toggle('view',mode==='view');mode==='view'?renderView():renderShelf();},list(value){rows=value;codexObserve(rows);listed=true;for(const r of rows)if(fin(r)&&!onScreen.has(r.id))onScreen.set(r.id,age(r));mode==='view'?renderView():renderShelf();},chats(value){chatRows=value;if(mode==='view')renderView();},named(value){namedRows=value;if(mode==='view')renderList();},namedReply(value){showNamedStatus(value);},
  state(r){const i=rows.findIndex(x=>x.id===r.id),old=rows[i],committed=i>=0&&old.textVersion!==r.textVersion;if(i<0)rows.unshift(r);else rows[i]=r;codexObserve([r]);if(committed||r.status!=='running')liveText.delete(r.id);
   if(!fin(r))onScreen.delete(r.id);else if(!old||!fin(old)||old.seenAt!==r.seenAt)onScreen.set(r.id,age(r));   // just finished or its card just shown: a fresh 10 minutes
   if(old&&!fin(old)&&fin(r)){dismissed.delete(r.id);if(over?.dataset.id===r.id)held=r.id;}   // a finish is news: hidden while it worked, or cleared before a follow-up, it shows again done
@@ -455,6 +460,7 @@ window.agents={mode(value){mode=value;document.body.classList.toggle('view',mode
  resume(){if(mode==='shelf'){visible=true;previewing='';renderShelf();}},
  mini(value){const id=mode==='view'?selected:previewId(),n=document.querySelector('[data-mini="'+id+'"]');if(n){n.dataset.live=value.live?'true':'';setText(n,value.live?'':value.window||value.app||'Window');}fit();}};
 $('new-codex').onclick=()=>{$('codex-create').hidden=false;$('codex-folder').focus();};
+$('codex-choose').onclick=()=>command('choose-codex-folder','');
 $('codex-dismiss').onclick=()=>{$('codex-create').hidden=true;};
 $('codex-unlock').onclick=reviewCodexPending;
 $('codex-form').onsubmit=e=>{e.preventDefault();submitCodexTask();};

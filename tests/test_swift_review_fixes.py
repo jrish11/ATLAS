@@ -40,6 +40,28 @@ class SwiftReviewFixTests(unittest.TestCase):
             if name == 'shortcut': body = body.split('shortcutDown = true', 1)[1]
             self.assertLess(body.index('if quietFollowUp { hush() }'), body.index('if engine.isRunning') if name != 'typed' else body.index('guard !busy, !engine.isRunning'))
 
+    def test_saved_wake_name_restarts_only_an_enabled_listener(self):
+        apply = self.swift.split('    func apply(_ k: String, _ v: Any)', 1)[1].split('    func handle(_ b:', 1)[0]
+        self.assertIn('if k == "wakeWordName", Prefs.bool("wakeWord")', apply)
+        self.assertLess(apply.index('guard Prefs.set(k, v)'), apply.index('if k == "wakeWordName"'))
+        self.assertIn('app.stopWake(); app.wakeRetry = .distantPast; app.wakeBackoff = 1', apply)
+        wake = self.swift.split('    func wakeTick()',1)[1].split('    func enableWakeWord()',1)[0]
+        self.assertIn('request.contextualStrings = [Self.wakeName]',wake)
+        self.assertIn('guard let self, wakeID == id else { return }',wake)
+        self.assertIn("if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }", self.settings)
+        self.assertIn('atticus|atlas|please',self.swift)
+
+    def test_atlas_default_preserves_saved_wake_name_and_switch(self):
+        helper=self.swift.split('    static func personalWakeDefaults',1)[1].split('    static var d:',1)[0]
+        self.assertIn('saved["wakeWordName"] == nil || saved["wakeWordName"] as? String == "Atticus"',helper)
+        self.assertIn('values["wakeWordName"] = "Atlas"',helper)
+        self.assertNotIn('wakeWord"] =',helper)
+        self.assertIn('personalWakeDefaults(&values,saved:saved)',self.swift)
+        self.assertIn('placeholder="Atlas"',self.settings)
+        self.assertIn('["wakeWordName":"Friday"], "Friday"',self.swift)
+        self.assertIn('["wakeWordName":"Hey Atticus"], "Hey Atticus"',self.swift)
+        self.assertIn('["Atlas", "Hey Atlas", "HEY ATLAS!", "Hey, Atlas"]',self.swift)
+
     def test_fn_key_match_is_exact_and_modifier_prefixes_conflict(self):
         helpers = self.swift[self.swift.index("let atticusFnKey"):self.swift.index("func configuredHotkey")]
         matcher = self.swift[self.swift.index("func specialHotkey"):self.swift.index("func handleSpecialHotkeys")]

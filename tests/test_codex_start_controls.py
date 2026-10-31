@@ -43,6 +43,13 @@ $('codex-reviewed').checked=true;reviewCodexPending();assert.equal(codexPending,
 submitCodexTask();assert.equal(posts.length,1);
 ''')
 
+ def test_native_cancel_unlocks_only_its_own_pending_request(self):
+  self.run_js(r'''
+$('codex-folder').value='/fixture';$('codex-task').value='inspect';$('codex-confirm').checked=true;submitCodexTask();
+codexNativeCancelled('stale');assert.ok(codexPending);assert.equal($('codex-submit').disabled,true);
+codexNativeCancelled(posts[0].requestId);assert.equal(codexPending,null);assert.equal($('codex-confirm').checked,false);assert.equal($('codex-submit').disabled,false);assert.equal(posts.length,1);
+''')
+
  def test_submit_once_then_wait_for_actual_record(self):
   self.run_js(r'''
 $('codex-folder').value='/fixture';$('codex-task').value='<script>untrusted text</script>';$('codex-confirm').checked=true;
@@ -79,6 +86,12 @@ assert.equal(posts.length,0);
   self.assertIn("$('codex-form').onsubmit=e=>{e.preventDefault();submitCodexTask();};",html)
   self.assertIn("$('codex-dismiss').onclick=()=>{$('codex-create').hidden=true;};",html)
   self.assertIn('id="codex-confirm" type="checkbox"',html)
+  self.assertIn("command('choose-codex-folder','')",html)
+  self.assertIn("$('codex-confirm').checked=false",html)
+  swift=(ROOT/'Atticus.swift').read_text()
+  chooser=swift.split('        case "choose-codex-folder":',1)[1].split('        case "codex-start":',1)[0]
+  self.assertIn('picker.runModal() == .OK',chooser)
+  self.assertNotIn('self.send(',chooser)
   module=html.split('<script type="module">',1)[1].split('</script>',1)[0]
   with tempfile.TemporaryDirectory(prefix='atticus-agents-syntax-') as d:
    p=Path(d,'agents.mjs');p.write_text(module)
