@@ -751,6 +751,11 @@ def search_first(ask):
     return bool(ask) and not os.path.exists(os.path.join(ask, 'searched'))
 
 
+def safe_mode():
+    # Explicit Claude-account tasks retain their sandbox/approval requirement even if settings change.
+    return os.environ.get('ATTICUS_FORCE_SAFE') == '1' or pref('safe', True) is not False
+
+
 def gate():
     """AI client's PreToolUse hook: native hands cannot bypass their wrapper; in safe mode a risky command waits for the user's Allow (60 s, then no).
     Allowed = it runs for real, outside the sandbox. The AI asking to leave the sandbox by itself asks too."""
@@ -810,7 +815,7 @@ def gate():
     if os.environ.get('ATTICUS_AGENT') and event.get('tool_name') == 'Bash' and re.search(r'(?:^|[\s;&|(/])open\s[^;&|]*https?://', inp.get('command', '')):
         decision(False, f'Open web pages with {ME} --web read "<url>": it uses this task\'s own browser window, never the user\'s tabs.'); return
     agent_approved = False
-    if event.get('tool_name', '').startswith('mcp__') and (pref('safe', True) or os.environ.get('ATTICUS_AGENT_PREP') == '1'):
+    if event.get('tool_name', '').startswith('mcp__') and (safe_mode() or os.environ.get('ATTICUS_AGENT_PREP') == '1'):
         annotations = connector_annotations(event, os.environ.get('ATTICUS_ASK', ''))
         if annotations.get('readOnly', annotations.get('readOnlyHint')) is True and not annotations.get('destructive', annotations.get('destructiveHint', False)):
             decision(True, '')
@@ -828,7 +833,7 @@ def gate():
         if answer == 'task': allow_for_task(kind)
         decision(answer in ('y', 'task'), 'The user said no. Do not try another way.')
         return
-    if os.environ.get('ATTICUS_AGENT') and pref('safe', True) and event.get('tool_name') in ('Bash', 'Write', 'Edit') and not trusted_read:
+    if os.environ.get('ATTICUS_AGENT') and safe_mode() and event.get('tool_name') in ('Bash', 'Write', 'Edit') and not trusted_read:
         kind = action_kind(event['tool_name'], inp)
         answer = 'y' if task_allowed(kind) else ask_user(
             {'q': 'Allow this task action?', 'cmd': (str(inp.get('file_path', '')) + '\n' + json.dumps(inp, ensure_ascii=False)).strip()[:800], 'task': bool(kind)}, 600)
@@ -863,7 +868,7 @@ def gate():
         decision(False, 'Use atticus.py --hands or --calendar; native actions and safety overrides are not model tools.')
         return
     q = '' if agent_approved or trusted_read else risky(cmd) or ('Run outside the safe folder?' if inp.get('dangerouslyDisableSandbox') or external and cmd else '')
-    if not q or not os.environ.get('ATTICUS_ASK') or not pref('safe', True):
+    if not q or not os.environ.get('ATTICUS_ASK') or not safe_mode():
         if os.environ.get('ATTICUS_ASK'): preview_commands(cmd)
         record_external()
         if os.environ.get('ATTICUS_AGENT') or trusted_read or external: decision(True, '')
@@ -3045,7 +3050,7 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
                 c = json.loads(js('name'))
             except ValueError:
                 return 'No such control. Read the page again.'
-            if c.get('submit') or re.search(RISKY_CLICK, c['what'], re.I) and pref('safe', True):
+            if c.get('submit') or re.search(RISKY_CLICK, c['what'], re.I) and safe_mode():
                 if not os.environ.get('ATTICUS_ASK'):   # a saved shortcut has no Allow card: never click these blind
                     return 'This click needs the user\'s confirmation. Ask through Atticus, not a shortcut.'
                 if not task_allowed('web click'):
@@ -3313,7 +3318,7 @@ def hands(*args):
                 if not (re.search(r'\b(type|enter|fill|paste)\b', request, re.I) and re.search(r'\b(password|passcode|pin|secret|secure|verification|one.time|otp|card|cvv|ssn|token|account|routing)\b', request, re.I)) or re.search(r"\b(don.t|do not|never)\s+(type|enter|fill|paste)\b", request, re.I):
                     denied.append('Secure field: the user must explicitly request typing into it.')
                     return False
-            if check.get('risky') and pref('safe', True) and not task_allowed('hands ' + args[0]):
+            if check.get('risky') and safe_mode() and not task_allowed('hands ' + args[0]):
                 what = ' → '.join(labels) or args[0]
                 if not os.environ.get('ATTICUS_ASK'):
                     denied.append(f'Safe mode: {args[0]} "{what}" needs the user’s Allow card.')
@@ -5230,7 +5235,7 @@ class Agents:
         if row.get('provider') == 'codex': return
         if row.get('_directoryLost') or not os.path.isdir(row['directory']):
             self.directory_lost(row); raise OSError('Agent directory disappeared')
-        row['_model'], row['_userTools'] = row.get('_requestedModel') or agent_model(), pref('agentUserTools', True)
+        row['_model'], row['_userTools'] = row.get('_requestedModel') or agent_model(), pref('agentUserTools', True) and row.get('provider')!='claude'
         row['userToolsLoaded'] = False
         row.pop('loadUserTools', None)
         row['_warmAt'] = time.monotonic()
@@ -5910,6 +5915,29 @@ class Agents:
                 except OSError:
                     rejected('Could not safely save the Codex task.'); return
                 self.start(row['id'], task, evidence=task)
+            elif action == 'claude-start':
+                task,request=data.get('task'),data.get('requestId')
+                def rejected(message):
+                    safe_id=request if isinstance(request,str) and re.fullmatch(r'[a-f0-9-]{36}',request) else ''
+                    self.emit({'event':'codex-start-error','requestId':safe_id,'error':message})
+                if not trusted_native_context_parent() or data.get('confirmed') is not True or data.get('folder')!='':
+                    rejected('Claude Code tasks require native confirmation and use a private scratch workspace.'); return
+                if not isinstance(request,str) or not re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}',request) or not isinstance(task,str) or not task.strip() or len(task)>4000 or any(ord(c)<32 or ord(c)==127 for c in task):
+                    rejected('A valid task and request ID are required.'); return
+                if not safe_mode(): rejected('Turn on Safe mode before starting a Claude Code task.'); return
+                task=task.strip();existing=next((r for r in self.rows.values() if r.get('clientRequest')==request),None)
+                if existing:
+                    if existing.get('provider')!='claude' or existing.get('brief')!=task: rejected('Request identifier conflict; no task was started.'); return
+                    self.emit({'event':'state','agent':existing});return
+                if not (os.environ.get('ATTICUS_CLAUDE') or shutil.which('claude')):
+                    rejected('Claude Code is not installed or not available to ATLAS.'); return
+                try:
+                    row=self.new();row.update(provider='claude',title=agent_title(task),brief=task,context='',status='offered',clientRequest=request,_requestedModel='sonnet')
+                    self.rows[row['id']]=row;self.save(row)
+                    if row.get('_directoryLost'): rejected('Could not safely save the Claude Code task.'); return
+                except OSError:
+                    rejected('Could not safely save the Claude Code task.'); return
+                self.start(row['id'],task,evidence=task)
             elif action == 'select-project' and identifier in self.rows:
                 row, folder = self.rows[identifier], data.get('folder')
                 # Only an explicitly confirmed choice may scope an unstarted Codex offer.
@@ -6037,12 +6065,12 @@ def agents_service():
     finally: manager.close()
 
 
-def system_prompt(risky):
+def system_prompt(risky, account_only=False):
     """The Atticus system prompt: the shared helpers and reply protocol, plus this client's risky-action rule."""
     system = SYSTEM.replace('NEVER_RISKY', risky)
     if pref('workIn', 'back') == 'front':
         system = system.replace('Work behind: never activate/raise unless asked to open/show/switch/focus.', 'Work in front: bring apps/pages forward only when not frontmost.').replace('pictures that window in place, even covered; raises only if asked.', 'to bring the working app forward.')
-    if client() == 'claude' and not server():
+    if client() == 'claude' and (account_only or not server()):
         head, _, rest = system.partition('\n')
         system = head + '\n' + AGENT_HANDOFF + rest
     return (system + (ASK_ME if pref('askMe', True) else '') +
@@ -6060,15 +6088,17 @@ def start_claude(model=None, agent=None):
     claude = os.environ.get('ATTICUS_CLAUDE') or shutil.which('claude')
     if not claude:
         return None
-    system = system_prompt(ASK_FIRST if pref('safe', True) else NEVER)
+    explicit_account = bool(agent and agent.get('provider') == 'claude')
+    if explicit_account and not safe_mode(): raise OSError('Turn on Safe mode before starting a Claude Code task.')
+    system = system_prompt(ASK_FIRST if safe_mode() else NEVER, account_only=True) if explicit_account else system_prompt(ASK_FIRST if safe_mode() else NEVER)
     if agent:
         for main_only in (AGENT_HANDOFF, DRAWING, POINTER, TEACH, WORKFLOW): system = system.replace(main_only, '')   # [tip]/[workflow]/[point] are read only from main replies
-        system += AGENT_SYSTEM + ('\nPersonal tools are enabled.' if pref('agentUserTools', True) else '\nPersonal tools are disabled; do not request them.')
+        system += AGENT_SYSTEM + ('\nPersonal tools are enabled.' if pref('agentUserTools', True) and not explicit_account else '\nPersonal tools are disabled; do not request them.')
     settings = {}
     ask = agent['directory'] if agent else os.environ.get('ATTICUS_ASK') or tempfile.mkdtemp(prefix='atticus-ask-')   # keep helpers and focus restoration on the same ask
     if not agent: atexit.register(shutil.rmtree, ask, True)
-    if agent and pref('safe', True):
-        settings['sandbox'] = {'enabled': True, 'autoAllowBashIfSandboxed': True, 'allowUnsandboxedCommands': True, 'excludedCommands': SAFE_OUT}
+    if agent and safe_mode():
+        settings['sandbox'] = {'enabled': True, 'autoAllowBashIfSandboxed': True, 'allowUnsandboxedCommands': not explicit_account, 'excludedCommands': [] if explicit_account else SAFE_OUT}
         settings['sandbox']['filesystem'] = {'denyRead': [os.path.join(DIR, 'agent-gates')], 'denyWrite': [os.path.join(DIR, 'agent-gates'), os.path.join(DIR, 'answers')]}
     if agent and agent.get('connectors'):
         try:
@@ -6079,9 +6109,9 @@ def start_claude(model=None, agent=None):
     errors = tempfile.TemporaryFile(mode='w+')   # draining a pipe only after wait() can deadlock
     flags = ['--resume', agent['session']] if agent and agent.get('session') else []
     flags += ['--include-partial-messages'] + ([] if agent else ['--no-session-persistence', '--strict-mcp-config'])
-    if agent and pref('agentUserTools', True): flags += user_agent_tools(ask)
+    if agent and pref('agentUserTools', True) and not explicit_account: flags += user_agent_tools(ask)
     if not agent: flags += ['--disable-slash-commands']
-    elif not pref('agentUserTools', True): flags += ['--disable-slash-commands']
+    elif explicit_account or not pref('agentUserTools', True): flags += ['--disable-slash-commands']
     env = {**os.environ, 'ATTICUS_ASK': ask}
     # Messages take the cheaper 5-minute cache (steps are seconds apart; a later follow-up rewrites once); tools + system keep Claude's default.
     env['CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL'] = '5m'
@@ -6089,11 +6119,16 @@ def start_claude(model=None, agent=None):
         for key in ('ATTICUS_COMMIT', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ATTICUS_REQUEST'): env.pop(key, None)
         env.update(ATTICUS_AGENT=agent['id'], ATTICUS_HANDS_STATE=os.path.join(ask, 'hands.json'), ATTICUS_FRONT=agent.get('app', ''), ATTICUS_UI='1',
                    ATTICUS_AGENT_PREP='1' if agent.get('destination') == 'meeting' else '0', CLAUDE_CODE_DISABLE_CLAUDE_MDS='1')
-    env.update(server(agent_model() if agent else None))
+    if explicit_account:
+        env['ATTICUS_FORCE_SAFE']='1'
+        for key in tuple(env):
+            if key.startswith('ANTHROPIC_'): env.pop(key,None)
+    else: env.update(server(agent_model() if agent else None))
     tools = 'Bash,Read,WebSearch,WebFetch'
     if agent:
         tools = 'Read,WebSearch,WebFetch,ToolSearch' if agent.get('destination') == 'meeting' else 'Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch,Skill,ToolSearch'
-        if agent.get('connectors'): tools += ',' + ','.join(agent['connectors'])
+        if explicit_account: tools = 'Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch'
+        elif agent.get('connectors'): tools += ',' + ','.join(agent['connectors'])
     try:
         p = subprocess.Popen([claude, '-p', '--input-format', 'stream-json', '--model', model or main_model(), '--effort', 'low', '--system-prompt', system,
                               '--tools', tools, '--permission-mode', 'dontAsk' if agent else 'bypassPermissions', '--disallowedTools', *DENY,
@@ -6583,7 +6618,7 @@ def run_devin(task, shots=(), request=None):
     ask = tempfile.mkdtemp(prefix='atticus-ask-')   # the choices card (and hands events) talk through it
     atexit.register(shutil.rmtree, ask, True)   # however this run ends
     save_request(ask, main_ask(task, request)[0])
-    prompt = system_prompt(ASK_FIRST if pref('safe', True) else NEVER)
+    prompt = system_prompt(ASK_FIRST if safe_mode() else NEVER)
     if shots:
         prompt += '\nScreen pictures (read them if your tools can view images): ' + ', '.join(path for path, _ in shots)
     prompt += '\n\n' + '\n\n'.join(b['text'] for b in user_content(task, request=request))
@@ -6700,7 +6735,7 @@ def run_pi(task, shots=(), request=None, history=None, context_consent=None):
     else:
         args = [pi, '--mode', 'json', '--print', '--no-session', '--no-mcp', '--no-skills', '--no-prompt-templates',
                 '--no-context-files', '--no-extensions', '--extension', extension,
-                '--system-prompt', system_prompt(ASK_FIRST if pref('safe', True) else NEVER),
+                '--system-prompt', system_prompt(ASK_FIRST if safe_mode() else NEVER),
                 '--tools', 'bash,read,grep,find,ls', '--']
         env = {**os.environ, 'ATTICUS_ASK': ask, 'ATTICUS_CLIENT': 'pi', 'ATTICUS_ME': ME}
     if foreground:

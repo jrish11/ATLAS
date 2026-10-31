@@ -28,5 +28,23 @@
     "current_public_previews_retained": true,
     "final_source_commit": null,
     "final_artifact": null
+  },
+  "candidate": {
+    "display_version": "1.1",
+    "name": "First Light",
+    "channel": "rc.1",
+    "source_commit": "a9b66b5069ab2d0a02335edd6f63ddf120e99f87",
+    "production_ready": false,
+    "internal_build": 2,
+    "focused_checks": 161,
+    "native_skips": 2,
+    "packaging_checks": 17,
+    "private_profile": false,
+    "website_primary_changed": false,
+    "public_artifact": {
+      "name": "ATLAS-1.1-First-Light-RC-macOS-arm64-PUBLIC.zip",
+      "bytes": 2129161,
+      "sha256": "e56ad64c7922377621d9ce668ea59373e66bbab958780c8ab16dd51da90bac4c"
+    }
   }
 }

@@ -25,6 +25,19 @@ const button=(text,fn)=>({textContent:text,onclick:fn,disabled:false});const sho
   result=subprocess.run([node,'-e',base+actual+'\n'+body],capture_output=True,text=True,timeout=10)
   self.assertEqual(result.returncode,0,result.stderr[-2500:])
 
+ def test_secure_request_id_fallback_and_failure_are_safe(self):
+  self.run_js(r'''
+const make={getRandomValues:b=>crypto.randomFillSync(b)};
+const ids=new Set(Array.from({length:256},()=>codexRequestID(make)));
+assert.equal(ids.size,256);for(const id of ids)assert.match(id,/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+assert.throws(()=>codexRequestID(null),/Secure request IDs/);assert.throws(()=>codexRequestID({getRandomValues(){throw Error('no entropy')}}),/Secure request IDs/);
+assert.match(codexRequestID({randomUUID(){throw Error('unavailable')},getRandomValues:b=>crypto.randomFillSync(b)}),/^[a-f0-9-]{36}$/);
+const original=crypto.randomUUID;crypto.randomUUID=undefined;
+$('codex-folder').value='/fixture';$('codex-task').value='synthetic';submitCodexTask();submitCodexTask();
+assert.equal(posts.length,1);assert.match(posts[0].requestId,/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+codexNativeCancelled(posts[0].requestId);assert.equal(codexPending,null);assert.equal($('codex-submit').disabled,false);
+const row={id:'row',provider:'codex',folder:'/fixture',status:'done'};rows=[row];assert.equal(continueCodexTask(row,'next'),true);assert.equal(continueCodexTask(row,'next'),false);assert.equal(posts.length,2);crypto.randomUUID=original;
+''')
  def test_scope_confirmation_malformed_and_ambiguous_inputs(self):
   self.run_js(r'''
 for(const args of [[null,'x',true],['/tmp','x',false],['~/project','x',true],['/','x',true],['/tmp\nother','x',true],['/tmp','',true],['/tmp','x'.repeat(4001),true]])assert.throws(()=>codexStartPayload(...args,[]));
@@ -68,6 +81,13 @@ codexObserve([{provider:'codex',folder:'/fixture',brief:posts[0].task,created:0}
 codexObserve([{provider:'codex',folder:'/fixture',brief:posts[0].task,codexClientRequest:posts[0].requestId,created:Date.now()/1000}]);assert.equal(codexPending,null);assert.equal($('new-codex').disabled,false);assert.equal(posts.length,1);
 ''')
 
+ def test_provider_selector_dispatches_once_and_acknowledges_selected_provider(self):
+  self.run_js(r'''
+$('agent-provider').value='claude';$('codex-folder').value='/ignored';$('codex-task').value='synthetic';submitCodexTask();submitCodexTask();
+assert.equal(posts.length,1);assert.equal(posts[0].action,'claude-start');assert.equal(posts[0].folder,'');assert.equal(codexPending.provider,'claude');
+codexObserve([{provider:'codex',codexClientRequest:posts[0].requestId}]);assert.ok(codexPending);
+codexObserve([{provider:'claude',clientRequest:posts[0].requestId}]);assert.equal(codexPending,null);
+''')
  def test_continue_rejects_inflight_review_and_repeated_actions(self):
   self.run_js(r'''
 const r={id:'fixture-agent',provider:'codex',folder:'/fixture',status:'done'};
@@ -94,7 +114,7 @@ assert.equal(posts.length,0);
   if not node:self.skipTest('Node unavailable')
   self.assertIn("$('codex-form').onsubmit=e=>{e.preventDefault();submitCodexTask();};",html)
   self.assertIn("$('codex-dismiss').onclick=()=>{$('codex-create').hidden=true;};",html)
-  self.assertIn('You will review the project and task before Codex starts.',html)
+  self.assertIn('You will review the task and scope before the selected agent starts.',html)
   self.assertIn("command('choose-codex-folder','')",html)
   self.assertNotIn('id="codex-confirm"',html)
   swift=(ROOT/'Atticus.swift').read_text()

@@ -137,15 +137,15 @@ footer { padding:12px 20px 16px; border-top:.5px solid var(--line) } .ask { disp
 #codex-form p { color:var(--fg2); font-size:12px; line-height:1.5 } #codex-folder,#codex-task { width:100%; background:var(--fill); color:var(--fg); border:1px solid var(--line); border-radius:7px; padding:8px; font:inherit; user-select:text }
 </style>
 <div id="shelf"></div>
-<div id="full"><aside><div class="side-head"><b>Agents</b><div class="seg" id="tabs" role="group" aria-label="Show" hidden><button data-v="">Agents</button><button data-v="chats">Chats</button></div></div><button id="new-codex" class="ghost">New Codex task…</button><div id="named-status" role="status" aria-live="polite"></div><div id="list"></div><div class="side-foot" id="aside-foot"><button id="clear-failed" class="ghost">Clear failed</button><button id="clear" class="ghost">Clear done</button></div></aside>
+<div id="full"><aside><div class="side-head"><b>Agents</b><div class="seg" id="tabs" role="group" aria-label="Show" hidden><button data-v="">Agents</button><button data-v="chats">Chats</button></div></div><button id="new-codex" class="ghost">New agent task…</button><div id="named-status" role="status" aria-live="polite"></div><div id="list"></div><div class="side-foot" id="aside-foot"><button id="clear-failed" class="ghost">Clear failed</button><button id="clear" class="ghost">Clear done</button></div></aside>
 <main><div id="scroll"><div id="page"><header><canvas data-size="38"></canvas><div class="t"><h1 id="title">Agents</h1><div class="status" id="status"></div></div><div class="actions" id="tools"></div></header>
 <p id="brief">Your tasks, while you do something else.</p>
 <section id="codex-create" hidden><form id="codex-form">
-<h2>Start a scoped Codex task</h2><p>Uses Codex authentication in Settings, separately from the foreground OpenAI API. Requires the supported Codex CLI and an existing ChatGPT account login. Readiness checks can block unsupported configurations.</p>
-<p>ATLAS will use a matching saved project or its own workspace. You can choose a different folder.</p><button id="codex-choose" type="button">Choose a different project…</button><input id="codex-folder" type="hidden"><p id="codex-scope-status">Automatic project selection</p>
+<h2>Start an agent task</h2><label for="agent-provider">Agent</label><select id="agent-provider" aria-label="Agent provider"><option value="codex">Codex · existing ChatGPT account</option><option value="claude">Claude Code · existing Claude account</option></select><p id="agent-provider-detail">Codex uses your existing account and a confirmed project. Claude Code uses its own login and a private scratch workspace. Each requires its own installed CLI.</p>
+<div id="codex-project-controls"><p>ATLAS will use a matching saved project or its own workspace. You can choose a different folder.</p><button id="codex-choose" type="button">Choose a different project…</button><input id="codex-folder" type="hidden"><p id="codex-scope-status">Automatic project selection</p></div>
 <label for="codex-task">Task</label><textarea id="codex-task" maxlength="4000" rows="3" required></textarea>
-<p>You will review the project and task before Codex starts. Permission expansion still requires approval.</p>
-<div class="actions"><button id="codex-submit" type="submit" class="go">Start Codex task</button><button id="codex-dismiss" type="button">Close</button></div>
+<p>You will review the task and scope before the selected agent starts. Permission expansion still requires approval.</p>
+<div class="actions"><button id="codex-submit" type="submit" class="go">Start agent task</button><button id="codex-dismiss" type="button">Close</button></div>
 <p id="codex-start-status" role="status" aria-live="polite"></p>
 <div id="codex-pending-review" hidden><label><input id="codex-reviewed" type="checkbox"> I checked Agents and the project for a matching request.</label><button id="codex-unlock" type="button">Unlock form after review</button></div></form></section>
 <div id="body"></div></div></div>
@@ -182,24 +182,36 @@ const command=(action,id,more={})=>post({action,id,...more});
 // CODEX CONTROLS: no automatic dispatch, retry or approval. Keep one unacknowledged submission.
 let codexPending=null; const codexContinuing=new Set();
 function codexCanContinue(r){return !!r&&r.provider==='codex'&&['done','failed','stopped'].includes(r.status)&&!r.cancelRequested&&!r.cancelReviewRequired&&typeof r.folder==='string'&&r.folder.startsWith('/');}
+// randomUUID is unavailable in some file-origin WebKit contexts. getRandomValues
+// is cryptographically secure there and remains mandatory; never use Math.random.
+function codexRequestID(source=typeof crypto==='undefined'?null:crypto){
+ if(source&&typeof source.randomUUID==='function'){
+  try{const id=source.randomUUID();if(typeof id==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(id))return id;}catch(_){}
+ }
+ if(!source||typeof source.getRandomValues!=='function')throw Error('Secure request IDs are unavailable. Restart ATLAS or update macOS.');
+ try{const bytes=new Uint8Array(16);source.getRandomValues(bytes);bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
+  const hex=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+ }catch(_){throw Error('Secure request IDs are unavailable. Restart ATLAS or update macOS.');}
+}
 function codexStartPayload(folder,task,confirmed,known){
  if(typeof folder!=='string'||typeof task!=='string'||confirmed!==true)throw Error('Enter a task first.');
  folder=folder.trim();task=task.trim();
- if((folder && !folder.startsWith('/'))||folder==='/'||folder.length>1024||/[\x00-\x1f\x7f]/.test(folder)||!task||task.length>4000||task.includes('\0'))throw Error('Enter an absolute project folder and a task of 1–4000 characters.');
+ if((folder && !folder.startsWith('/'))||folder==='/'||folder.length>1024||/[\x00-\x1f\x7f]/.test(folder)||!task||task.length>4000||/[\x00-\x1f\x7f]/.test(task))throw Error('Enter an absolute project folder and a task of 1–4000 characters.');
  if(known.some(r=>r.provider==='codex'&&(!folder||r.folder===folder)&&r.brief===task&&(ACTIVE.includes(r.status)||r.cancelReviewRequired)))throw Error('A matching task is active or needs cancellation review. Inspect it before starting another.');
- return {folder,task,confirmed:true,requestId:crypto.randomUUID()};
+ return {folder,task,confirmed:true,requestId:codexRequestID()};
 }
 function codexObserve(list){
- if(codexPending&&list.some(r=>r.provider==='codex'&&r.codexClientRequest===codexPending.requestId)){
+ if(codexPending&&list.some(r=>r.provider===codexPending.provider&&(r.codexClientRequest===codexPending.requestId||r.clientRequest===codexPending.requestId))){
   codexPending=null;$('codex-submit').disabled=false;$('codex-pending-review').hidden=true;setText($('codex-start-status'),'Task recorded. Select it to inspect its true status.');
  }
  for(const r of list)if(r.provider==='codex'&&(ACTIVE.includes(r.status)||r.cancelReviewRequired))codexContinuing.delete(r.id);
 }
 function submitCodexTask(){
  if(codexPending)return;
- try{const p=codexStartPayload($('codex-folder').value,$('codex-task').value,true,rows);
-  codexPending={...p,at:Date.now()/1000};$('codex-submit').disabled=true;$('codex-pending-review').hidden=false;$('codex-reviewed').checked=false;
-  setText($('codex-start-status'),'Request sent. Inspect Agents before retrying; sending is not completion.');command('codex-start','',p);
+ try{const provider=$('agent-provider').value==='claude'?'claude':'codex';
+  const p=codexStartPayload(provider==='claude'?'':$('codex-folder').value,$('codex-task').value,true,provider==='claude'?[]:rows);
+  codexPending={...p,provider,at:Date.now()/1000};$('codex-submit').disabled=true;$('codex-pending-review').hidden=false;$('codex-reviewed').checked=false;
+  setText($('codex-start-status'),'Request sent. Inspect Agents before retrying; sending is not completion.');command(provider==='claude'?'claude-start':'codex-start','',p);
  }catch(e){setText($('codex-start-status'),e.message);}
 }
 function codexNativeCancelled(id){
@@ -465,6 +477,7 @@ window.agents={codexStartError(value){codexNativeError(value);},codexStartCancel
  resume(){if(mode==='shelf'){visible=true;previewing='';renderShelf();}},
  mini(value){const id=mode==='view'?selected:previewId(),n=document.querySelector('[data-mini="'+id+'"]');if(n){n.dataset.live=value.live?'true':'';setText(n,value.live?'':value.window||value.app||'Window');}fit();}};
 $('new-codex').onclick=()=>{$('codex-create').hidden=false;if(!codexPending){$('codex-folder').value='';setText($('codex-scope-status'),'Automatic project selection');}$('codex-task').focus();};
+$('agent-provider').onchange=()=>{$('codex-project-controls').hidden=$('agent-provider').value==='claude';};
 $('codex-choose').onclick=()=>command('choose-codex-folder','');
 $('codex-dismiss').onclick=()=>{$('codex-create').hidden=true;};
 $('codex-unlock').onclick=reviewCodexPending;

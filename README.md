@@ -1,3 +1,5 @@
+> RELEASE CANDIDATE SOURCE: ATLAS1.1 First Light RC1, frozena9b66b5.161 focused checks passed with2 native WebKit skips;17 packaging checks and relocated signatures/self-tests/resources passed. Actual native/live provider readiness is NOT established. See [Cancel-only owner test and RC limits](docs/releases/ATLAS-1.1-First-Light-RC1.md). Website primary download remains v3.6.
+
 # ATLAS
 
 A customized fork of [Atticus for macOS](https://github.com/SaarthurR/atticus-mac), retaining its compact floating interface, menu bar, voice/typed interaction and existing architecture. ATLAS is not the unrelated earlier prototype bearing the same name.

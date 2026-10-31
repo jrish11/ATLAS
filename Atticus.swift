@@ -4899,6 +4899,19 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
             };return true
     }
 
+    @discardableResult func startClaudeRequest(_ body:[String:Any]) -> Bool {
+        func rejected() -> Bool { if let id=body["requestId"] as? String {js("view","codexStartCancelled",id)};return false }
+        guard body["confirmed"] as? Bool == true, body["folder"] as? String == "", let task=body["task"] as? String,
+              !task.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,task.count<=4000,
+              !task.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+              let requestID=body["requestId"] as? String, UUID(uuidString:requestID) != nil else {return rejected()}
+        let alert=NSAlert();alert.messageText="Start this Claude Code task?"
+        alert.informativeText="Task: "+task+"\n\nClaude Code uses its own existing account and a private ATLAS scratch workspace. It may request approval for other actions. Codex and the foreground OpenAI key are separate."
+        alert.addButton(withTitle:"Start Claude Code task");alert.addButton(withTitle:"Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else {return rejected()}
+        guard sendCodexStart(body) else {return rejected()};return true
+    }
+
     func userContentController(_ controller:WKUserContentController,didReceive message:WKScriptMessage) {
         guard let body = message.body as? [String:Any], let action = body["action"] as? String else { return }
         let surface = message.webView === viewWeb ? "view" : "shelf", id = body["id"] as? String ?? ""
@@ -4960,6 +4973,9 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
         case "codex-start":
             guard surface == "view" else {return}
             startCodexRequest(body,fromUI:true)
+        case "claude-start":
+            guard surface == "view" else {return}
+            startClaudeRequest(body)
         case "answer":
             if rows[id]?["provider"] as? String == "codex", body["answer"] as? String == "y" {
                 guard let q=rows[id]?["question"] as? [String:Any],let token=q["_a"] as? String,token==body["question"] as? String, let details=q["cmd"] as? String else {return}

@@ -34,7 +34,7 @@ cat > "$STAGE/Atticus Dev.app/Contents/Info.plist" <<PLIST
 <key>CFBundleName</key><string>ATLAS</string>
 <key>CFBundleDisplayName</key><string>ATLAS</string>
 <key>CFBundleExecutable</key><string>Atticus</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleVersion</key><string>2</string>
 <key>CFBundleShortVersionString</key><string>$VERSION</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
