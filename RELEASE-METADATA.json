@@ -19,5 +19,6 @@
   "history": "clean upstream ancestry plus sanitized release snapshot commits/tags; raw customized metadata not published",
   "release_records": "seven verified experimental prereleases v3 throughv3.6",
   "download_url": "https://github.com/jrish11/ATLAS/releases/download/v3.6/ATLAS-v3.6-macOS-arm64-PUBLIC.zip",
-  "development_status": "reviewed v3.6 limited preview; native interaction unverified"
+  "development_status": "Unconfigured signed update verifier/staging prototype only, no installer/download/keys enabled",
+  "development_source_commit": "3363e0c2582301901893daafa56ff9f7122bdc69"
 }

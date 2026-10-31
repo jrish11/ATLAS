@@ -1,3 +1,5 @@
+> DEVELOPMENT ONLY: signed-updater verification/staging prototype. No persistent signing key, trusted feed, native updater UI or installation path is enabled. Current released app is v3.6 with manual replacement.18 synthetic verifier tests (35 with existing packaging checks) and Swift typecheck passed; real cryptographic signature/installation/rollback remain unverified.
+
 # ATLAS
 
 A customized fork of [Atticus for macOS](https://github.com/SaarthurR/atticus-mac), retaining its compact floating interface, menu bar, voice/typed interaction and existing architecture. ATLAS is not the unrelated earlier prototype bearing the same name.
