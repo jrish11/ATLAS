@@ -53,6 +53,19 @@ verifier, sequence receipt, executable or approval result.
    versions and a monotonic release sequence separately from upstream's dated
    bundle version. A local app-owned trusted receipt prevents rollback/replay;
    failure to read or persist it blocks installation rather than resetting it.
+   The development protocol is schema2: signed `update_epoch`, globally
+   increasing `build`, and globally increasing feed `sequence` are distinct from
+   the product's display version. A signed epoch advance allows the deliberately
+   rebranded v3.x→v1.1 transition; the internal build must still increase. Within
+   an epoch a display downgrade is rejected. An old epoch is always rejected,
+   even with a higher display label or feed sequence. A same-display rebuild
+   still needs a new build and sequence. Schema1 manifests are not accepted.
+   The staged app must match the signed `CFBundleVersion` and integer
+   `ATLASUpdateEpoch`. The delivered v3.6 bundle has build1 and no epoch key;
+   treat that reviewed legacy lineage as epoch0 only during the explicit native
+   migration, never infer order from its upstream short version1.5.4. The
+   proposed First Light native build advances to2; updater activation additionally
+   needs its explicit epoch property and trusted receipt integration.
 4. An approved GitHub asset URL can redirect only through the observed official
    release asset transport. A future downloader must allowlist exact HTTPS
    redirect hosts from verified vendor documentation, cap redirects and bytes,

@@ -77,6 +77,8 @@ def timestamp(value):
 class VerifiedRelease:
     version: str
     sequence: int
+    update_epoch: int
+    build: int
     channel: str
     url: str
     sha256: str
@@ -87,7 +89,8 @@ class VerifiedRelease:
     manifest_sha256: str
 
 def verify_manifest(raw, signature_raw, *, pinned_verify=None, now, current_version,
-                    highest_sequence, machine, macos, allow_prerelease=False):
+                    highest_sequence, current_epoch, current_build, machine, macos,
+                    allow_prerelease=False):
     """Verify exact manifest bytes before parsing authority-bearing fields.
 
     pinned_verify(key_id, signature64, raw_bytes) must use an embedded trust root.
@@ -112,13 +115,22 @@ def verify_manifest(raw, signature_raw, *, pinned_verify=None, now, current_vers
     if accepted is not True:
         reject('Untrusted release signature.')
     data = strict_json(raw)
-    fields(data, ('schema', 'product', 'repository', 'version', 'sequence', 'channel',
+    fields(data, ('schema', 'product', 'repository', 'version', 'sequence', 'channel', 'update_epoch', 'build',
                   'published_at', 'expires_at', 'minimum_macos', 'architecture',
                   'bundle_id', 'archive', 'changelog'))
-    if type(data['schema']) is not int or data['schema'] != 1 or data['product'] != 'ATLAS' or data['repository'] != REPOSITORY or data['bundle_id'] != BUNDLE_ID:
+    if type(data['schema']) is not int or data['schema'] != 2 or data['product'] != 'ATLAS' or data['repository'] != REPOSITORY or data['bundle_id'] != BUNDLE_ID:
         reject('Wrong update identity.')
-    if version(data['version']) <= version(current_version):
-        reject('Update is not newer.')
+    # Epoch is publisher-signed migration authority; display labels are not builds.
+    # An epoch increase permits the explicitly branded 3.x -> 1.1 transition,
+    # while build and feed sequence remain globally increasing and never reset.
+    for number in (data['update_epoch'], data['build'], current_epoch, current_build):
+        if type(number) is not int or not 0 <= number <= 2**53-1:
+            reject('Invalid internal update order.')
+    if data['update_epoch'] < current_epoch or data['build'] <= current_build:
+        reject('Internal build rollback.')
+    remote_version, installed_version = version(data['version']), version(current_version)
+    if data['update_epoch'] == current_epoch and remote_version < installed_version:
+        reject('Display downgrade needs a signed epoch transition.')
     if type(data['sequence']) is not int or type(highest_sequence) is not int or not 0 <= highest_sequence < data['sequence'] <= 2**53-1:
         reject('Release rollback or invalid sequence.')
     if data['channel'] not in ('stable', 'prerelease') or (data['channel'] == 'prerelease' and allow_prerelease is not True):
@@ -143,7 +155,7 @@ def verify_manifest(raw, signature_raw, *, pinned_verify=None, now, current_vers
         reject('Invalid archive hash.')
     if type(archive['size']) is not int or not 0 < archive['size'] <= MAX_ARCHIVE:
         reject('Invalid archive size.')
-    return VerifiedRelease(data['version'], data['sequence'], data['channel'], archive['url'],
+    return VerifiedRelease(data['version'], data['sequence'], data['update_epoch'], data['build'], data['channel'], archive['url'],
                            archive['sha256'], archive['size'], data['minimum_macos'],
                            machine, data['changelog'], hashlib.sha256(raw).hexdigest())
 
@@ -241,6 +253,8 @@ def stage_archive(path, release, destination, *, verify_bundle=None):
         info = plistlib.loads((app/'Contents/Info.plist').read_bytes())
         if info.get('CFBundleIdentifier') != BUNDLE_ID or info.get('CFBundleExecutable') != 'Atticus':
             reject('Staged bundle identity changed.')
+        if info.get('CFBundleVersion') != str(release.build) or type(info.get('ATLASUpdateEpoch')) is not int or info['ATLASUpdateEpoch'] != release.update_epoch:
+            reject('Staged internal release order changed.')
         if verify_bundle(app, release) is not True:
             reject('Native app trust validation failed.')
         return app

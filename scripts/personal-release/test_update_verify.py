@@ -8,14 +8,14 @@ import update_verify as u
 NOW=dt.datetime(2026,10,31,12,tzinfo=dt.timezone.utc)
 def dump(x):return json.dumps(x,separators=(',',':')).encode()
 def metadata():
- return {'schema':1,'product':'ATLAS','repository':'jrish11/ATLAS','version':'v3.7','sequence':7,'channel':'prerelease','published_at':'2026-10-31T11:00:00Z','expires_at':'2026-11-02T11:00:00Z','minimum_macos':'26.0','architecture':'arm64','bundle_id':u.BUNDLE_ID,'archive':{'url':'https://github.com/jrish11/ATLAS/releases/download/v3.7/ATLAS-v3.7-macOS-arm64-PUBLIC.zip','sha256':'a'*64,'size':10},'changelog':'Fixture changes only.'}
+ return {'schema':2,'product':'ATLAS','repository':'jrish11/ATLAS','version':'v3.7','sequence':7,'update_epoch':0,'build':7,'channel':'prerelease','published_at':'2026-10-31T11:00:00Z','expires_at':'2026-11-02T11:00:00Z','minimum_macos':'26.0','architecture':'arm64','bundle_id':u.BUNDLE_ID,'archive':{'url':'https://github.com/jrish11/ATLAS/releases/download/v3.7/ATLAS-v3.7-macOS-arm64-PUBLIC.zip','sha256':'a'*64,'size':10},'changelog':'Fixture changes only.'}
 ENVELOPE=dump({'algorithm':'Ed25519','key_id':'fixture','signature':base64.b64encode(b'0'*64).decode()})
 def verify(data=None,**changes):
- opts=dict(pinned_verify=lambda *_:True,now=NOW,current_version='v3.6',highest_sequence=6,machine='arm64',macos='26.0',allow_prerelease=True);opts.update(changes)
+ opts=dict(pinned_verify=lambda *_:True,now=NOW,current_version='v3.6',highest_sequence=6,current_epoch=0,current_build=1,machine='arm64',macos='26.0',allow_prerelease=True);opts.update(changes)
  return u.verify_manifest(dump(metadata() if data is None else data),ENVELOPE,**opts)
 def zip_data(extra=(),identity=None):
  output=io.BytesIO()
- rows=[('ATLAS.app/Contents/Info.plist',plistlib.dumps({'CFBundleIdentifier':u.BUNDLE_ID if identity is None else identity,'CFBundleExecutable':'Atticus'})),('ATLAS.app/Contents/MacOS/Atticus',b'fixture'),('ATLAS.app/Contents/MacOS/PersonalKeychain',b'fixture'),('ATLAS.app/Contents/Resources/Licenses/Atticus-MIT.txt',b'fixture MIT'),('ATLAS.app/Contents/Resources/Licenses/Plip-MIT.txt',b'fixture MIT')]
+ rows=[('ATLAS.app/Contents/Info.plist',plistlib.dumps({'CFBundleIdentifier':u.BUNDLE_ID if identity is None else identity,'CFBundleExecutable':'Atticus','CFBundleVersion':'7','ATLASUpdateEpoch':0})),('ATLAS.app/Contents/MacOS/Atticus',b'fixture'),('ATLAS.app/Contents/MacOS/PersonalKeychain',b'fixture'),('ATLAS.app/Contents/Resources/Licenses/Atticus-MIT.txt',b'fixture MIT'),('ATLAS.app/Contents/Resources/Licenses/Plip-MIT.txt',b'fixture MIT')]
  with zipfile.ZipFile(output,'w',compression=zipfile.ZIP_DEFLATED) as z:
   for name,data in rows+list(extra):z.writestr(name,data)
  return output.getvalue()
@@ -30,11 +30,11 @@ class ManifestTests(unittest.TestCase):
   for raw in (b'{"x":1,"x":2}',b'{"x":NaN}',b'\xff',b'[',b'['*2000+b']'*2000,b' '*u.MAX_MANIFEST+b'0'):
    with self.subTest(raw=raw[:30]),self.assertRaises(u.UpdateRejected):u.strict_json(raw)
  def test_identity_schema_and_unknown_fields_rejected(self):
-  for field,value in [('schema',True),('schema',2),('product','Other'),('repository','attacker/ATLAS'),('bundle_id','com.atticus.app'),('unexpected',1)]:
+  for field,value in [('schema',True),('schema',1),('product','Other'),('repository','attacker/ATLAS'),('bundle_id','com.atticus.app'),('unexpected',1)]:
    data=metadata();data[field]=value
    with self.subTest(field=field),self.assertRaises(u.UpdateRejected):verify(data)
  def test_rollback_sameversion_sequence_and_large_version_rejected(self):
-  for field,value in [('version','v3.6'),('version','v2.99'),('version','v'+'9'*5000+'.1'),('sequence',6),('sequence',True),('sequence',2**54)]:
+  for field,value in [('version','v2.99'),('version','v'+'9'*5000+'.1'),('sequence',6),('sequence',True),('sequence',2**54)]:
    data=metadata();data[field]=value
    with self.subTest(field=field),self.assertRaises(u.UpdateRejected):verify(data)
  def test_channel_architecture_and_minimum_os_fail_closed(self):
@@ -54,7 +54,18 @@ class ManifestTests(unittest.TestCase):
  def test_signature_envelope_mutations(self):
   for change in ({'algorithm':'none'},{'signature':'?'},{'signature':True},{'key_id':'../../key'},{'extra':'x'}):
    env=json.loads(ENVELOPE);env.update(change)
-   with self.subTest(change=change),self.assertRaises(u.UpdateRejected):u.verify_manifest(dump(metadata()),dump(env),pinned_verify=lambda *_:True,now=NOW,current_version='v3.6',highest_sequence=6,machine='arm64',macos='26.0',allow_prerelease=True)
+   with self.subTest(change=change),self.assertRaises(u.UpdateRejected):u.verify_manifest(dump(metadata()),dump(env),pinned_verify=lambda *_:True,now=NOW,current_version='v3.6',highest_sequence=6,current_epoch=0,current_build=1,machine='arm64',macos='26.0',allow_prerelease=True)
+ def test_first_light_display_transition_requires_signed_new_epoch_and_build(self):
+  data=metadata();data.update(version='v1.1',update_epoch=1,build=2)
+  data['archive']['url']='https://github.com/jrish11/ATLAS/releases/download/v1.1/ATLAS-v1.1-macOS-arm64-PUBLIC.zip'
+  r=verify(data);self.assertEqual((r.version,r.update_epoch,r.build),('v1.1',1,2))
+  for changes in ({'update_epoch':0},{'build':1},{'sequence':6},{'update_epoch':True},{'build':True}):
+   with self.subTest(changes=changes),self.assertRaises(u.UpdateRejected):verify({**data,**changes})
+ def test_new_epoch_cannot_replay_old_feed_and_same_display_rebuild_needs_new_build(self):
+  with self.assertRaises(u.UpdateRejected):verify(current_version='v1.1',current_epoch=1,current_build=2)
+  data=metadata();data.update(version='v3.6',build=2);data['archive']['url']=data['archive']['url'].replace('v3.7','v3.6')
+  self.assertEqual(verify(data).build,2)
+  with self.assertRaises(u.UpdateRejected):verify(data,current_build=2)
  def test_hash_size_and_changelog_bounds(self):
   for field,value in [('size',True),('size',u.MAX_ARCHIVE+1),('sha256','A'*64)]:
    data=metadata();data['archive'][field]=value
@@ -109,4 +120,9 @@ class ArchiveTests(unittest.TestCase):
   self.path.write_bytes(self.data)
   with self.assertRaises(RuntimeError):u.stage_archive(self.path,self.release,self.root/'crash',verify_bundle=Mock(side_effect=RuntimeError('fixture')))
   self.assertFalse((self.root/'crash').exists())
+ def test_staged_epoch_and_build_must_match_signed_metadata(self):
+  for release in (replace(self.release,update_epoch=1),replace(self.release,build=8)):
+   callback=Mock(return_value=True)
+   with self.assertRaises(u.UpdateRejected):u.stage_archive(self.path,release,self.root/'mismatch',verify_bundle=callback)
+   callback.assert_not_called();self.assertFalse((self.root/'mismatch').exists())
 if __name__=='__main__':unittest.main()

@@ -1,4 +1,4 @@
-> DEVELOPMENT ONLY: signed-updater verification/staging prototype. No persistent signing key, trusted feed, native updater UI or installation path is enabled. Current released app is v3.6 with manual replacement.18 synthetic verifier tests (35 with existing packaging checks) and Swift typecheck passed; real cryptographic signature/installation/rollback remain unverified.
+> DEVELOPMENT ONLY: signed-updater verification/staging prototype. No persistent signing key, trusted feed, native updater UI or installation path is enabled. Current released app is v3.6 with manual replacement.21 synthetic verifier tests (38 with existing packaging checks) and Swift typecheck passed; real cryptographic signature/installation/rollback remain unverified.
 
 # ATLAS
 
