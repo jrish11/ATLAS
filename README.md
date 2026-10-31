@@ -4,6 +4,10 @@ A customized fork of [Atticus for macOS](https://github.com/SaarthurR/atticus-ma
 
 **Current Mac preview: v3.6. Last updated: 2026-10-31 UTC.** Exact source: `ef7dfe5f92ba7a5e1d8ad824c1fa9772765f8d04`. Public source repository: [jrish11/ATLAS](https://github.com/jrish11/ATLAS). The owner approved public publication; this repository contains sanitized exports rather than the raw local customized commit graph. See [release metadata](RELEASE-METADATA.json), [changelog](CHANGELOG.md), [release inventory](RELEASES.md) and [build instructions](docs/BUILD.md).
 
+## Next release line: First Light (draft)
+
+**ATLAS1.1 “First Light” is a release candidate, not production-ready.** The existing public3.x previews/tags remain part of the history; current download below remains v3.6. See [First Light gates and migration plan](docs/releases/ATLAS-1.1-First-Light-DRAFT.md). The reported embedded-WebKit Start task exception has a fix under review; v3.6 does not include it. Phone pairing and integrated live Codex are not yet release-verified.
+
 ## Download and versions
 
 [Download the experimental macOS v3.6 ZIP](https://github.com/jrish11/ATLAS/releases/download/v3.6/ATLAS-v3.6-macOS-arm64-PUBLIC.zip) · [All documented prereleases](https://github.com/jrish11/ATLAS/releases) · [Source tags](https://github.com/jrish11/ATLAS/tags). Apple Silicon/macOS 26+, ad-hoc signed and not notarized; read setup requirements and limitations first. Windows remains source-only. Historical prereleases expose source, not private older binaries.

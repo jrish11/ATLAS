@@ -19,5 +19,14 @@
   "history": "clean upstream ancestry plus sanitized release snapshot commits/tags; raw customized metadata not published",
   "release_records": "seven verified experimental prereleases v3 throughv3.6",
   "download_url": "https://github.com/jrish11/ATLAS/releases/download/v3.6/ATLAS-v3.6-macOS-arm64-PUBLIC.zip",
-  "development_status": "reviewed v3.6 limited preview; native interaction unverified"
+  "development_status": "reviewed v3.6 limited preview; native interaction unverified",
+  "next_release": {
+    "display_version": "1.1",
+    "name": "First Light",
+    "status": "draft-release-candidate-not-production-ready",
+    "download_switch": false,
+    "current_public_previews_retained": true,
+    "final_source_commit": null,
+    "final_artifact": null
+  }
 }

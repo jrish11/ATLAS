@@ -2,6 +2,10 @@
 
 Current Mac preview: **v3.6**. Last updated: **2026-10-31 UTC**. Times below are verified source commit timestamps, not inferred release-upload times. All entries are limited test previews; no general readiness or live integrated Codex success is claimed.
 
+## Unreleased: ATLAS1.1 “First Light”
+
+Planned release-candidate branding and fixes, not a published production release. See docs/releases/ATLAS-1.1-First-Light-DRAFT.md for actual evidence and open gates. Display1.1 deliberately succeeds public3.x previews through increasing internal build metadata; no previous tag is rewritten.
+
 ## v3.6 — 2026-10-31T14:28:29-04:00
 
 Source: `ef7dfe5f92ba7a5e1d8ad824c1fa9772765f8d04`.
