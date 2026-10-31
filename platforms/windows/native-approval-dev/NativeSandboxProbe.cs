@@ -50,7 +50,7 @@ internal static class NativeSandboxProbe
         return message;
     }
     // Builds only scratch files and a process description; no process is run.
-    internal static ProcessStartInfo BuildProbeStart(string executable, string scratch, int listenerPort)
+    internal static ProcessStartInfo BuildProbeStart(string executable, string scratch, int listenerPort, bool canary = false)
     {
         if (listenerPort < 1 || listenerPort > 65535 || !Path.IsPathFullyQualified(scratch)) throw new InvalidOperationException("Valid isolated probe inputs are required.");
         if (scratch.Any(c => c > 127) || scratch.IndexOfAny(new[] { '%', '!', '&', '|', '<', '>', '^', '\r', '\n' }) >= 0) throw new InvalidOperationException("Unsafe scratch path for command interpreter.");
@@ -60,14 +60,18 @@ internal static class NativeSandboxProbe
         string system = Environment.SystemDirectory, windows = Directory.GetParent(system)?.FullName ?? throw new InvalidOperationException("Windows directory unavailable.");
         string powershell = Path.Combine(system, "WindowsPowerShell", "v1.0", "powershell.exe");
         string network = "$ErrorActionPreference='Stop'; try { $c=New-Object System.Net.Sockets.TcpClient; $a=$c.BeginConnect('127.0.0.1'," + listenerPort + ",$null,$null); if (-not $a.AsyncWaitHandle.WaitOne(2000)) { exit 31 }; $c.EndConnect($a); exit 32 } catch { if ($_.Exception -is [System.Net.Sockets.SocketException] -or $_.Exception.InnerException -is [System.Net.Sockets.SocketException]) { exit 31 }; exit 33 }";
-        string scriptText = "@echo off\r\necho inside>\"%~dp0inside.txt\"\r\nif errorlevel 1 exit /b 11\r\necho outside>\"" + outsideFile + "\"\r\nif not errorlevel 1 exit /b 12\r\n" +
-            "\"" + powershell + "\" -NoProfile -NonInteractive -Command \"exit 0\"\r\nif errorlevel 1 exit /b 13\r\n" +
-            "\"" + powershell + "\" -NoProfile -NonInteractive -Command \"" + network + "\"\r\nif errorlevel 33 exit /b 15\r\nif errorlevel 32 exit /b 14\r\nif not errorlevel 31 exit /b 16\r\nexit /b 0\r\n";
+        // Stable markers identify which scratch-only check ran without
+        // printing paths or other environment values in CI diagnostics.
+        string scriptText = "@echo off\r\necho ATLAS_PROBE_STARTED\r\necho inside>\"%~dp0inside.txt\"\r\nif errorlevel 1 (echo ATLAS_INSIDE_DENIED & exit /b 11)\r\necho ATLAS_INSIDE_WRITTEN\r\necho outside>\"" + outsideFile + "\"\r\nif not errorlevel 1 (echo ATLAS_OUTSIDE_WRITTEN & exit /b 12)\r\necho ATLAS_OUTSIDE_DENIED\r\n" +
+            "\"" + powershell + "\" -NoProfile -NonInteractive -Command \"exit 0\"\r\nif errorlevel 1 (echo ATLAS_POWERSHELL_FAILED & exit /b 13)\r\necho ATLAS_POWERSHELL_READY\r\n" +
+            "\"" + powershell + "\" -NoProfile -NonInteractive -Command \"" + network + "\"\r\nif errorlevel 33 (echo ATLAS_NETWORK_ERROR & exit /b 15)\r\nif errorlevel 32 (echo ATLAS_NETWORK_CONNECTED & exit /b 14)\r\nif not errorlevel 31 (echo ATLAS_NETWORK_UNKNOWN & exit /b 16)\r\necho ATLAS_NETWORK_DENIED\r\nexit /b 0\r\n";
         File.WriteAllText(script, scriptText, Encoding.ASCII);
         var info = new ProcessStartInfo(executable) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true, WorkingDirectory = project };
-        foreach (string arg in new[] { "-c", "windows.sandbox=\"mxc\"", "-c", "permissions.atlas_probe.filesystem={\":minimal\"=\"read\",\":workspace_roots\"=\"write\"}", "-c", "permissions.atlas_probe.network.enabled=false", "-c", "default_permissions=\"atlas_probe\"", "sandbox", "--include-managed-config", "--permission-profile", "atlas_probe", "--", Path.Combine(system, "cmd.exe"), "/d", "/c", script }) info.ArgumentList.Add(arg);
+        foreach (string arg in new[] { "-c", "windows.sandbox=\"mxc\"", "-c", "permissions.atlas_probe.filesystem={\":minimal\"=\"read\",\":workspace_roots\"=\"write\"}", "-c", "permissions.atlas_probe.network.enabled=false", "-c", "default_permissions=\"atlas_probe\"", "sandbox", "--include-managed-config", "--permission-profile", "atlas_probe", "--", Path.Combine(system, "cmd.exe"), "/d", "/c", canary ? "echo ATLAS_MXC_CANARY" : script }) info.ArgumentList.Add(arg);
         info.Environment.Clear();
-        info.Environment["SystemRoot"] = windows; info.Environment["WINDIR"] = windows; info.Environment["PATH"] = system;
+        string systemDrive = Path.GetPathRoot(windows)?.TrimEnd('\\');
+        if (systemDrive == null || systemDrive.Length != 2 || !char.IsAsciiLetter(systemDrive[0]) || systemDrive[1] != ':') throw new InvalidOperationException("System drive unavailable.");
+        info.Environment["SystemDrive"] = systemDrive; info.Environment["SystemRoot"] = windows; info.Environment["WINDIR"] = windows; info.Environment["PATH"] = system;
         info.Environment["USERPROFILE"] = profile; info.Environment["APPDATA"] = Path.Combine(profile, "appdata");
         info.Environment["LOCALAPPDATA"] = Path.Combine(profile, "local"); info.Environment["TEMP"] = temp; info.Environment["TMP"] = temp; info.Environment["CODEX_HOME"] = Path.Combine(profile, ".codex");
         return info;
@@ -89,6 +93,9 @@ internal static class NativeSandboxProbe
                 await baseline.ConnectAsync(IPAddress.Loopback, port, limit.Token);
                 using var accepted = await listener.AcceptTcpClientAsync(limit.Token);
             }
+            var canary = BuildProbeStart(package.Executable, scratch, port, canary: true);
+            string canaryResult = await RunCaptureAsync(canary, stop, mergeErrorWithOutput: true);
+            if (!canaryResult.Contains("ATLAS_MXC_CANARY", StringComparison.Ordinal)) throw new InvalidOperationException("MXC canary did not produce its expected output.");
             var info = BuildProbeStart(package.Executable, scratch, port);
             await RunCaptureAsync(info, stop, mergeErrorWithOutput: true);
             if (!File.Exists(Path.Combine(scratch, "project", "inside.txt")) || File.Exists(Path.Combine(scratch, "outside", "must-not-be-written.txt")) || listener.Pending())

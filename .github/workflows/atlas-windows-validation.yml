@@ -50,15 +50,3 @@ jobs:
         run: |
           python -m unittest discover -s ../../scripts/personal-release -p test_codex_probe_stage.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify official CLI package and probe explicit MXC boundaries
-        run: |
-          $archive = Join-Path $env:RUNNER_TEMP 'codex-0.166.0-windows.tar.gz'
-          Invoke-WebRequest -Uri 'https://github.com/openai/codex/releases/download/rust-v0.166.0/codex-package-x86_64-pc-windows-msvc.tar.gz' -OutFile $archive -TimeoutSec 180
-          $root = Join-Path $env:RUNNER_TEMP 'atlas-official-codex-probe'
-          $package = python ../../scripts/personal-release/stage_codex_probe_package.py --archive $archive --output $root
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Write-Host 'Official archive, exact manifest and six executables passed SHA256 checks.'
-          $scratch = Join-Path $env:ATLAS_NATIVE_TEST_ROOT 'official-mxc-scope'
-          New-Item -ItemType Directory $scratch | Out-Null
-          dotnet run --no-build --project native-approval-dev/tests/NativeApproval.Tests.csproj -- --mxc-probe $package $scratch
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

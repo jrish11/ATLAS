@@ -22,6 +22,8 @@ internal sealed class WindowsProjectGuard : IDisposable
     }
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(string name, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    private static extern uint GetLongPathNameW(string input, StringBuilder output, uint capacity);
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GetFileInformationByHandle(SafeFileHandle handle, out FileInfoNative info);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -69,13 +71,24 @@ internal sealed class WindowsProjectGuard : IDisposable
         while (missing.Count != 0) canonical = Path.Combine(canonical, missing.Pop());
         return Path.TrimEndingDirectorySeparator(canonical);
     }
-    internal static WindowsProjectGuard Open(string selected)
+    internal static WindowsProjectGuard Open(string selected) => OpenCore(selected, true);
+    // Uses the same canonical handle/ancestor checks without applying the
+    // project's account-state restrictions to an installed provider package.
+    internal static WindowsProjectGuard OpenPackage(string selected) => OpenCore(selected, false);
+    private static WindowsProjectGuard OpenCore(string selected, bool checkProtected)
     {
         if (!OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(selected) || !Path.IsPathFullyQualified(selected)) throw new InvalidOperationException("A local Windows project is required.");
         // Win32 may silently strip trailing dots/spaces before a handle is
         // opened; reject those spellings before any lexical normalization.
         foreach (string segment in selected.Substring(Path.GetPathRoot(selected)!.Length).Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries))
             if (segment.EndsWith(".", StringComparison.Ordinal) || segment.EndsWith(" ", StringComparison.Ordinal)) throw new InvalidOperationException("Ambiguous project path spelling.");
+        // Compare the owner's spelling before GetFullPath can expand 8.3
+        // aliases. The handle checks below still independently reject reparse
+        // points and preserve the directory identity.
+        var expanded = new StringBuilder(32768);
+        uint expandedLength = GetLongPathNameW(selected, expanded, (uint)expanded.Capacity);
+        if (expandedLength == 0 || expandedLength >= expanded.Capacity || !Same(selected.Replace('/', '\\'), expanded.ToString()))
+            throw new InvalidOperationException("Short or ambiguous project path spelling is not accepted.");
         string project = Path.TrimEndingDirectorySeparator(Path.GetFullPath(selected));
         string root = Path.GetPathRoot(project)!;
         if (root.StartsWith(@"\\") || !Directory.Exists(project) || Same(project, root) || new DriveInfo(root).DriveType != DriveType.Fixed)
@@ -91,6 +104,7 @@ internal sealed class WindowsProjectGuard : IDisposable
             // lexical route that doesn't match the final handle's long path.
             string canonical = guard.held[^1].Canonical;
             if (!Same(project, canonical)) throw new InvalidOperationException("Project aliases are not accepted.");
+            if (!checkProtected) { guard.EnsureActive(); return guard; }
             string homeValue = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             if (string.IsNullOrWhiteSpace(homeValue) || !Path.IsPathFullyQualified(homeValue)) throw new InvalidOperationException("User profile could not be verified.");
             string home = CanonicalProtected(homeValue);

@@ -43,6 +43,17 @@ internal static class NativeOwnerBroker
     // can switch this on. Remove only after independent native/security review.
     internal static bool Enabled => false;
 
+    // A first lexical barrier only; final-handle identity and held ancestor
+    // verification are still required before production use.
+    internal static bool PathsOverlap(string left, string right)
+    {
+        string a = Path.TrimEndingDirectorySeparator(Path.GetFullPath(left));
+        string b = Path.TrimEndingDirectorySeparator(Path.GetFullPath(right));
+        return string.Equals(a, b, StringComparison.OrdinalIgnoreCase) ||
+            a.StartsWith(b + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+            b.StartsWith(a + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static async Task<NativeTurnResult> RunAsync(Control owner, string task, string selectedProject, string codexExecutable, CancellationToken stop)
     {
         if (!Enabled) throw new InvalidOperationException("Windows native AI broker is not enabled.");
@@ -55,11 +66,16 @@ internal static class NativeOwnerBroker
             stop.ThrowIfCancellationRequested();
             string bin = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(codexExecutable));
             if (!string.Equals(System.IO.Path.GetFileName(codexExecutable), "codex.exe", StringComparison.OrdinalIgnoreCase) || !string.Equals(System.IO.Path.GetFileName(bin), "bin", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("An official package entrypoint is required.");
-            using var package = VerifiedCodexPackage.Open(System.IO.Directory.GetParent(bin)?.FullName ?? throw new InvalidOperationException("Package root unavailable."));
+            string packageRoot = System.IO.Directory.GetParent(bin)?.FullName ?? throw new InvalidOperationException("Package root unavailable.");
+            using var packageIdentity = WindowsProjectGuard.OpenPackage(packageRoot);
+            if (PathsOverlap(project.Project, packageIdentity.Project)) throw new InvalidOperationException("The Codex package and writable project must be separate.");
+            using var package = VerifiedCodexPackage.Open(packageRoot);
+            packageIdentity.EnsureActive();
+            project.EnsureActive();
             using var cli = PinnedCodexExecutable.Open(package.Executable);
             string profile = "atlas_" + Guid.NewGuid().ToString("N");
             using var channel = new CodexProcessChannel(NativeCodexTurn.CreateProviderStart(cli.Path, profile));
-            var turn = new NativeCodexTurn(approval, project, channel, profile);
+            var turn = new NativeCodexTurn(approval, project, channel, profile, packageGuard: packageIdentity);
             return await turn.RunAsync(request =>
             {
                 if (stop.IsCancellationRequested || owner.IsDisposed) return false;

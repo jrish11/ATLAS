@@ -16,6 +16,7 @@ internal sealed class NativeCodexTurn
     private const int MaxEarly = 256;
     private readonly ApprovalSession session;
     private readonly WindowsProjectGuard project;
+    private readonly WindowsProjectGuard packageGuard;
     private readonly CodexProcessChannel channel;
     private readonly string profile;
     private readonly Func<ulong> elapsed;
@@ -25,10 +26,11 @@ internal sealed class NativeCodexTurn
     private bool approvalDenied;
     private readonly Dictionary<string, string> providerRequests = new(StringComparer.Ordinal);
 
-    internal NativeCodexTurn(ApprovalSession nativeOwnerApproved, WindowsProjectGuard lockedProject, CodexProcessChannel nativeProviderChannel, string requestedProfile, Func<ulong> elapsed = null)
+    internal NativeCodexTurn(ApprovalSession nativeOwnerApproved, WindowsProjectGuard lockedProject, CodexProcessChannel nativeProviderChannel, string requestedProfile, Func<ulong> elapsed = null, WindowsProjectGuard packageGuard = null)
     {
         session = nativeOwnerApproved ?? throw new ArgumentNullException(nameof(nativeOwnerApproved));
         project = lockedProject ?? throw new ArgumentNullException(nameof(lockedProject));
+        this.packageGuard = packageGuard;
         channel = nativeProviderChannel ?? throw new ArgumentNullException(nameof(nativeProviderChannel));
         if (!Regex.IsMatch(requestedProfile ?? "", "^atlas_[a-f0-9]{32}$")) throw new ArgumentException("Invalid isolated permission profile.");
         if (!string.Equals(session.Project, project.Project, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Project does not match owner approval.");
@@ -54,6 +56,9 @@ internal sealed class NativeCodexTurn
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (!Path.IsPathFullyQualified(system32) || !Path.IsPathFullyQualified(windows) || !Path.IsPathFullyQualified(userProfile)) throw new InvalidOperationException("Required platform paths unavailable.");
         info.Environment.Clear();
+        string systemDrive = Path.GetPathRoot(windows)?.TrimEnd('\\');
+        if (systemDrive == null || !Regex.IsMatch(systemDrive, "^[A-Za-z]:$")) throw new InvalidOperationException("System drive unavailable.");
+        info.Environment["SystemDrive"] = systemDrive;
         info.Environment["SystemRoot"] = windows;
         info.Environment["WINDIR"] = windows;
         info.Environment["PATH"] = system32;
@@ -77,10 +82,11 @@ internal sealed class NativeCodexTurn
     private static bool IsEmpty(JsonElement value) => value.ValueKind == JsonValueKind.Null || value.ValueKind == JsonValueKind.False || (value.ValueKind == JsonValueKind.Object && !value.EnumerateObject().Any()) || (value.ValueKind == JsonValueKind.Array && value.GetArrayLength() == 0);
     private static void Require(bool condition) { if (!condition) throw new InvalidDataException("Provider configuration or scope was not verified."); }
 
-    internal static TimeSpan DispatchAuthority(ApprovalSession authority, WindowsProjectGuard projectGuard)
+    internal static TimeSpan DispatchAuthority(ApprovalSession authority, WindowsProjectGuard projectGuard, WindowsProjectGuard packageGuard = null)
     {
         // Filesystem checks run on the writer outside the session authority lock.
         projectGuard.EnsureActive();
+        packageGuard?.EnsureActive();
         return authority.AuthorityRemaining();
     }
 
@@ -91,7 +97,7 @@ internal sealed class NativeCodexTurn
         var frame = new { id, method, @params = parameters };
         if (method is "thread/start" or "turn/start")
         {
-            if (!session.CommitIfActive(cancellation, () => channel.Send(frame, cancellation, session.RevocationToken, () => DispatchAuthority(session, project)))) throw new OperationCanceledException();
+            if (!session.CommitIfActive(cancellation, () => channel.Send(frame, cancellation, session.RevocationToken, () => DispatchAuthority(session, project, packageGuard)))) throw new OperationCanceledException();
         }
         else channel.Send(frame);
         var deadline = new ElapsedDeadline(TimeSpan.FromSeconds(30), elapsed);
@@ -269,7 +275,7 @@ internal sealed class NativeCodexTurn
             var decision = session.Decide(request, nativePrompt);
             if (decision.Decision != "accept") approvalDenied = true;
             project.EnsureActive();
-            if (!session.CommitIfActive(stop, () => channel.Send(new { id = id.Clone(), result = new { decision = decision.Decision } }, stop, session.RevocationToken, () => DispatchAuthority(session, project)))) throw new OperationCanceledException();
+            if (!session.CommitIfActive(stop, () => channel.Send(new { id = id.Clone(), result = new { decision = decision.Decision } }, stop, session.RevocationToken, () => DispatchAuthority(session, project, packageGuard)))) throw new OperationCanceledException();
             return null;
         }
         if (Terminal(item, out string status)) return new NativeTurnResult(approvalDenied ? "approval denied" : status, text.ToString(), status);

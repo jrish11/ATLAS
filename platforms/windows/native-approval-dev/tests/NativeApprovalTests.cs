@@ -146,6 +146,7 @@ static class NativeApprovalTests
                 var start = NativeCodexTurn.CreateProviderStart(Path.GetFullPath(args[0]), "atlas_" + Guid.NewGuid().ToString("N"));
                 foreach (string key in canaries) Require(!start.Environment.ContainsKey(key), "secret/proxy environment absent: " + key);
                 Require(start.Environment.ContainsKey("SystemRoot") && start.Environment.ContainsKey("USERPROFILE"), "required platform environment");
+                Require(start.Environment["SystemDrive"] == Path.GetPathRoot(Environment.SystemDirectory).TrimEnd('\\'), "provider system drive supplied");
             }
             finally { foreach (var pair in original) Environment.SetEnvironmentVariable(pair.Key, pair.Value); }
             string layoutRoot = Path.Combine(scratch, "layout-test");
@@ -158,20 +159,35 @@ static class NativeApprovalTests
             string isolatedProfile = Path.GetFullPath(Path.Combine(layoutRoot, "profile"));
             string codexHome = Path.GetFullPath(probeInfo.Environment["CODEX_HOME"]);
             Require(Directory.Exists(codexHome) && codexHome == Path.Combine(isolatedProfile, ".codex"), "isolated CODEX_HOME exists within profile");
+            Require(probeInfo.Environment["SystemDrive"] == Path.GetPathRoot(Environment.SystemDirectory).TrimEnd('\\'), "probe system drive supplied");
+            var canaryInfo = NativeSandboxProbe.BuildProbeStart(Path.GetFullPath(args[0]), layoutRoot, 32123, canary: true);
+            Require(canaryInfo.ArgumentList.Last() == "echo ATLAS_MXC_CANARY" && canaryInfo.ArgumentList.Contains("permissions.atlas_probe.network.enabled=false"), "canary retains network-disabled policy");
             Require(probeInfo.ArgumentList.Contains("permissions.atlas_probe.network.enabled=false") && probeInfo.ArgumentList.Contains("windows.sandbox=\"mxc\""), "explicit MXC network-disabled policy");
             string commandText = File.ReadAllText(Path.Combine(layoutRoot, "project", "fixture.cmd"));
+            Require(commandText.Contains("ATLAS_PROBE_STARTED", StringComparison.Ordinal) && commandText.Contains("ATLAS_INSIDE_WRITTEN", StringComparison.Ordinal) && commandText.Contains("ATLAS_OUTSIDE_DENIED", StringComparison.Ordinal) && commandText.Contains("ATLAS_NETWORK_DENIED", StringComparison.Ordinal), "probe stage diagnostics present");
             Require(commandText.Contains("127.0.0.1", StringComparison.Ordinal) && commandText.Contains("32123", StringComparison.Ordinal) && commandText.Contains("exit 33", StringComparison.Ordinal), "loopback denial fixture distinguishes socket errors");
             const string officialManifest = "{\r\n  \"layoutVersion\": 1,\r\n  \"version\": \"0.166.0\",\r\n  \"target\": \"x86_64-pc-windows-msvc\",\r\n  \"variant\": \"codex\",\r\n  \"entrypoint\": \"bin/codex.exe\",\r\n  \"execServer\": \"bin/codex-exec-server.exe\",\r\n  \"resourcesDir\": \"codex-resources\",\r\n  \"pathDir\": \"codex-path\"\r\n}\r\n";
             bool ManifestMatches(string text) => PinnedCodexExecutable.MatchesDigest(new MemoryStream(Encoding.UTF8.GetBytes(text)), VerifiedCodexPackage.ManifestSha256);
             Require(ManifestMatches(officialManifest), "exact official package manifest accepted");
             Require(!ManifestMatches(officialManifest.Replace("bin/codex-exec-server.exe", "bin/changed.exe")), "tampered execServer denied");
             Require(!ManifestMatches(officialManifest.Replace("codex-path", "changed-path")), "tampered pathDir denied");
+            bool unexpectedRejected = false;
+            try { VerifiedCodexPackage.CheckInventory(new[] { "evil.dll" }); } catch (InvalidDataException) { unexpectedRejected = true; }
+            Require(unexpectedRejected, "unexpected package code rejected");
+            Require(NativeOwnerBroker.PathsOverlap(Path.Combine(scratch, "project"), Path.Combine(scratch, "project", "package")), "nested package denied");
+            Require(NativeOwnerBroker.PathsOverlap(Path.Combine(scratch, "project", "package"), Path.Combine(scratch, "project")), "ancestor package denied");
+            Require(!NativeOwnerBroker.PathsOverlap(Path.Combine(scratch, "project"), Path.Combine(scratch, "project2")), "sibling names do not overlap");
             string incompletePackage = Path.Combine(scratch, "incomplete-package"); Directory.CreateDirectory(incompletePackage);
             File.WriteAllBytes(Path.Combine(incompletePackage, "codex-package.json"), Encoding.UTF8.GetBytes(officialManifest));
             bool missingRejected = false;
             try { using var missing = VerifiedCodexPackage.Open(incompletePackage); }
             catch (IOException) { missingRejected = true; }
             Require(missingRejected, "incomplete official package rejected");
+            using (var packageGuard = WindowsProjectGuard.OpenPackage(incompletePackage))
+            {
+                packageGuard.EnsureActive();
+                Require(NativeOwnerBroker.PathsOverlap(packageGuard.Project, incompletePackage), "package canonical identity retained");
+            }
             string target = Path.Combine(scratch, "target"); string selected = Path.Combine(scratch, "project-long-directory");
             Directory.CreateDirectory(target); Directory.CreateDirectory(selected);
             bool pathRejected = false;
