@@ -1549,6 +1549,74 @@ def play(name, anything=True):
     return f'Playing {on_spotify(p[1])}.'
 
 
+def direct_media_intent(text):
+    """Only an exact, whole owner request may reach the fixed local media commands."""
+    if not isinstance(text, str) or len(text) > 300 or any(ord(c)<32 for c in text): return None
+    link=re.fullmatch(r'\s*play\s+(?:spotify:track:|https://open\.spotify\.com/track/)([A-Za-z0-9]{22})\s*',text,re.I)
+    if link: return {'kind':'spotify_track','id':link[1]}
+    t=plain(text)
+    if re.search(r'\b(?:and|then|also|after|while)\b',t): return None
+    m=re.fullmatch(r'(?:set|change|turn) (?:the |my |system )?volume (?:to )?(\d{1,3})(?: percent|%)?',t)
+    if m:
+        value=int(m[1])
+        return {'kind':'volume','value':value} if 0 <= value <= 100 else {'kind':'invalid_volume'}
+    m=re.fullmatch(r'(?:turn|put|move) (?:the |my |system )?volume (up|down)(?: by (\d{1,3})(?: percent|%)?)?',t)
+    if not m: m=re.fullmatch(r'turn (up|down) (?:the |my |system )?volume(?: by (\d{1,3})(?: percent|%)?)?',t)
+    if not m: m=re.fullmatch(r'volume (up|down)(?: by (\d{1,3})(?: percent|%)?)?',t)
+    if not m: m=re.fullmatch(r'(?:increase|decrease|raise|lower) (?:the |my |system )?volume(?: by (\d{1,3})(?: percent|%)?)?',t)
+    if m:
+        groups=m.groups();direction=groups[0] if groups[0] in ('up','down') else ('up' if t.startswith(('increase','raise')) else 'down')
+        amount=groups[1] if len(groups)>1 else groups[0];step=int(amount) if amount else 10
+        return {'kind':'volume_delta','value':step if direction=='up' else -step} if 1<=step<=100 else {'kind':'invalid_volume'}
+    m=re.fullmatch(r'(pause|resume|play) (?:the )?(spotify|(?:apple )?music)',t)
+    if m:return {'kind':'transport','action':'play' if m[1] in ('resume','play') else 'pause','app':'spotify' if m[2]=='spotify' else 'music'}
+    if re.fullmatch(r'(?:quit|close) (?:the )?(?:apple )?music(?: app)?',t):return {'kind':'quit_music'}
+    m=re.fullmatch(r'play (.+?) (?:on|in) spotify',t)
+    if m and 1<=len(m[1])<=120 and not re.search(r'\b(?:and|then|also|after|while)\b',m[1]):
+        return {'kind':'spotify_search','query':m[1]}
+    return None
+
+
+def direct_media_execute(intent, runner=subprocess.run):
+    """One fixed command per explicit intent; never interpret media text as code."""
+    kind=intent.get('kind')
+    if kind=='invalid_volume': return 'Volume must be between 0 and 100 percent.'
+    if kind=='spotify_track':
+        track=intent.get('id')
+        if not isinstance(track,str) or not re.fullmatch(r'[A-Za-z0-9]{22}',track): return 'That media action is not supported.'
+        script='on run argv\ntell application id \"com.spotify.client\"\nplay track (item 1 of argv)\ndelay 0.5\nreturn (player state as text) & \"|\" & (id of current track as text)\nend tell\nend run'
+        try: result=runner(['/usr/bin/osascript','-e',script,'spotify:track:'+track],capture_output=True,text=True,timeout=15)
+        except (OSError,subprocess.TimeoutExpired):return 'Could not start the Spotify track. Check macOS permissions before trying again.'
+        if result.returncode:return 'Could not start the Spotify track. Check macOS permissions before trying again.'
+        return 'Playing the requested Spotify track.' if result.stdout.strip()=='playing|spotify:track:'+track else 'Spotify accepted the request, but playback of that track could not be verified.'
+    if kind=='spotify_search':
+        try:
+            result=runner(['/usr/bin/open','spotify:search:'+urllib.parse.quote(intent['query'],safe='')],capture_output=True,text=True,timeout=10)
+        except (OSError,subprocess.TimeoutExpired):return 'Could not open the Spotify search.'
+        return 'Requested a Spotify search. Select the track to play it.' if result.returncode==0 else 'Could not open the Spotify search.'
+    if kind in ('volume','volume_delta'):
+        value=intent.get('value')
+        if type(value) is not int or (kind=='volume' and not 0<=value<=100) or (kind=='volume_delta' and not 1<=abs(value)<=100): return 'That media action is not supported.'
+        if kind=='volume': script='set volume output volume '+str(value)+'\noutput volume of (get volume settings)'
+        else: script='set currentVolume to output volume of (get volume settings)\nset nextVolume to (currentVolume + ('+str(value)+'))\nif nextVolume < 0 then set nextVolume to 0\nif nextVolume > 100 then set nextVolume to 100\nset volume output volume nextVolume\noutput volume of (get volume settings)'
+    elif kind in ('transport','quit_music'):
+        if kind=='transport' and (intent.get('app') not in ('spotify','music') or intent.get('action') not in ('play','pause')): return 'That media action is not supported.'
+        bundle='com.spotify.client' if intent.get('app')=='spotify' else 'com.apple.Music'
+        action='quit' if kind=='quit_music' else intent['action']
+        script='tell application "System Events" to set appRunning to exists (first process whose bundle identifier is "'+bundle+'")\nif not appRunning then return "not running"\ntell application id "'+bundle+'" to '+action+'\nreturn "requested"'
+    else:return 'That media action is not supported.'
+    try: result=runner(['/usr/bin/osascript','-e',script],capture_output=True,text=True,timeout=10)
+    except (OSError,subprocess.TimeoutExpired):return 'The media action could not be completed. Check macOS permissions before trying again.'
+    if result.returncode: return 'The media action could not be completed. Check macOS permissions before trying again.'
+    output=result.stdout.strip()
+    if kind in ('volume','volume_delta'):
+        return 'System volume is '+output+'%.' if output.isdecimal() and 0<=int(output)<=100 else 'Volume was requested, but its level could not be verified.'
+    if output=='not running':return ('Spotify' if intent.get('app')=='spotify' else 'Music')+' is not running.'
+    if output!='requested':return 'The media action was requested, but its result could not be verified.'
+    if kind=='quit_music':return 'Requested that Music quit; check for any save dialog.'
+    return 'Requested '+intent['action']+' in '+('Spotify' if intent.get('app')=='spotify' else 'Music')+'.'
+
+
 def on_spotify(name):
     return name if re.search(r'\bspotify\b', name, re.I) else name + ' on Spotify'   # Spotify's own playlists end in "on Spotify"
 
@@ -6607,6 +6675,7 @@ def run_pi(task, shots=(), request=None, history=None, context_consent=None):
     channel_fd_owned = False
     channel_fd = approval_channel.TOOL_FD
     channel_enabled = foreground and (saved_tool or control_tool)
+    denied=threading.Event(); broker_thread=None
     try:
         if channel_enabled:
             import socket
@@ -6623,7 +6692,13 @@ def run_pi(task, shots=(), request=None, history=None, context_consent=None):
                              cwd=ask, start_new_session=True, env=env, pass_fds=(channel_fd,) if channel_enabled else ())
         if channel_enabled:
             os.close(channel_fd);channel_fd_owned=False;child_socket.close();child_socket=None
-            threading.Thread(target=approval_channel.native_broker,args=(owner_socket,sys.stdin,sys.stdout),daemon=True).start()
+            def denied_action():
+                denied.set()
+                try:
+                    fd=os.open(os.path.join(ask,'declined'),os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600);os.close(fd)
+                except OSError: pass
+                stop_claude(p)
+            broker_thread=threading.Thread(target=approval_channel.native_broker,args=(owner_socket,sys.stdin,sys.stdout),kwargs={'on_denied':denied_action},daemon=True);broker_thread.start()
         if foreground:
             p.stdin.write(prompt_input); p.stdin.close()
     except BaseException:
@@ -6673,6 +6748,7 @@ def run_pi(task, shots=(), request=None, history=None, context_consent=None):
             owner_socket.close()
         if sys.exc_info()[0] is not None and p.poll() is None: stop_claude(p)
     p.relay_thread.join(.3)
+    if broker_thread: broker_thread.join(.3)
     rows = read_rows(os.path.join(ask, 'pi-tools.jsonl'))
     steps = [row.get('step', '') for row in rows if row.get('step')]
     cmds = [row['input']['command'] for row in rows if row.get('tool') == 'exec' and row.get('input', {}).get('command')]
@@ -6682,7 +6758,10 @@ def run_pi(task, shots=(), request=None, history=None, context_consent=None):
         detail = detail.replace(foreground_secret, '[redacted]'); reply = reply.replace(foreground_secret, '[redacted]')
     run.cmds = [] if failed or p.returncode or timed_out[0] or model_error or aborted or not reply else cmds
     run.ok = bool(reply and not failed and not p.returncode and not timed_out[0] and not model_error and not aborted)
-    if timed_out[0]:
+    if denied.is_set():
+        run.ok=False;run.why='cancelled';run.cmds=[]
+        reply='You declined the action, so I stopped this request.'
+    elif timed_out[0]:
         run.why = 'timed_out'
         reply = 'Pi timed out before finishing. Please try again.'
     elif aborted:
@@ -8581,6 +8660,11 @@ def main():
         except ValueError:
             task = ''
         if not isinstance(task, str) or not task.strip(): return
+        media=direct_media_intent(task) if trusted_context else None
+        if media is not None:
+            if not wait_commit() or not trusted_native_context_parent(): return say('!', 'The request was cancelled; nothing was done.')
+            reply=direct_media_execute(media)
+            return say('!' if reply.startswith(('Could not','The media action could not','Volume must','That media action')) else '✓',reply)
         destination=personal_commands.resolve(DIR,plain(task))
         if destination and (destination.get('type') == 'document' or destination.get('ambiguous')):
             if not wait_commit(): return say('!', 'The request was cancelled; nothing was opened.')

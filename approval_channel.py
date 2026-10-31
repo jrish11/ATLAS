@@ -133,7 +133,7 @@ def tool_approval(question, timeout=60):
   try: sock.settimeout(None);sock.detach()
   except (NameError,OSError): pass
 
-def native_broker(sock, input_stream, output_stream, timeout=60):
+def native_broker(sock, input_stream, output_stream, timeout=60, on_denied=None):
  """Forward one-at-a-time private requests to native via its inherited pipes."""
  import select
  session=secrets.token_hex(32);owner=Owner(sock,session=session)
@@ -156,6 +156,9 @@ def native_broker(sock, input_stream, output_stream, timeout=60):
    if expires is not None: expected['expires']=expires;expected['targetRevision']=target_revision
    if type(reply.get('allow')) is not bool or reply!=expected or (expires is not None and (reply['allow'] is not True or type(expires) not in (int,float) or not math.isfinite(expires) or not isinstance(target_revision,str) or not target_revision or len(target_revision)>4096)) or (expires is None and target_revision is not None): return
    owner.respond(reply['allow'],expires,target_revision)
+   if reply['allow'] is False:
+    if on_denied is not None: on_denied()
+    return  # A denial ends this request's entire approval channel.
  except (EOFError,OSError,ValueError,TypeError,KeyError): pass
  finally:
   try: sock.shutdown(socket.SHUT_RDWR)
