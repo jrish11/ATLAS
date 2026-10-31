@@ -2,6 +2,7 @@
 import ast
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import subprocess
@@ -9,16 +10,36 @@ import tempfile
 import unittest
 from unittest import mock
 
+import atticus
+
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class ScriptFixtureTests(unittest.TestCase):
+    def test_fixture_patterns_handle_uppercase_and_closing_whitespace(self):
+        for name in ('tests/test_javascript.py', 'experiments/remote/tests/test_javascript.py',
+                     'platforms/windows/tests/test_javascript.py', 'tests/test_onboarding_page.py',
+                     'experiments/remote/tests/test_onboarding_page.py'):
+            source = (ROOT / name).read_text()
+            tree = ast.parse(source)
+            calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                     and isinstance(n.func.value, ast.Name) and n.func.value.id == 're'
+                     and n.func.attr in ('findall', 'sub') and n.args
+                     and isinstance(n.args[0], ast.Constant) and '<script' in str(n.args[0].value)]
+            with self.subTest(source=name):
+                self.assertTrue(calls)
+                call = calls[0]
+                flags = call.args[2] if call.func.attr == 'findall' else next(k.value for k in call.keywords if k.arg == 'flags')
+                self.assertEqual(ast.dump(flags), ast.dump(ast.parse('re.S | re.I', mode='eval').body))
+                self.assertTrue(re.search(call.args[0].value, '<SCRIPT>safe()</SCRIPT >', re.S | re.I))
 
 
 class PrivateTextTests(unittest.TestCase):
     def test_atomic_private_replacement_and_failure_cleanup(self):
+        functions = []
         for source in (ROOT / 'atticus.py', ROOT / 'experiments/remote/atticus.py'):
             tree = ast.parse(source.read_text())
-            function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'private_text')
-            env = {'os': os, 'tempfile': tempfile}
-            exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), env)
+            functions.append(next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'private_text'))
             with self.subTest(source=source), tempfile.TemporaryDirectory() as directory:
                 target = Path(directory) / 'request'
                 target.write_text('old'); target.chmod(0o644)
@@ -27,13 +48,14 @@ class PrivateTextTests(unittest.TestCase):
                     self.assertEqual(stat.S_IMODE(os.stat(src).st_mode), 0o600)
                     self.assertEqual(target.read_text(), 'old')
                     real_replace(src, dst)
-                with mock.patch.object(os, 'replace', side_effect=inspect): env['private_text'](str(target), 'synthetic')
+                with mock.patch.object(os, 'replace', side_effect=inspect): atticus.private_text(str(target), 'synthetic')
                 self.assertEqual(target.read_text(), 'synthetic')
                 self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
                 with mock.patch.object(os, 'replace', side_effect=OSError('fixture')):
-                    with self.assertRaises(OSError): env['private_text'](str(target), 'new')
+                    with self.assertRaises(OSError): atticus.private_text(str(target), 'new')
                 self.assertEqual(target.read_text(), 'synthetic')
                 self.assertEqual([p.name for p in Path(directory).iterdir()], ['request'])
+        self.assertEqual(ast.dump(functions[0]), ast.dump(functions[1]))
 
 
 @unittest.skipUnless(shutil.which('node'), 'Node is required for JavaScript checks')
