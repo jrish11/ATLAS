@@ -119,7 +119,7 @@ class OnboardingPageTests(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         html = (ROOT / 'ui/onboarding.html').read_text()
         cls.page = Path(cls.tmp.name) / 'onboarding.html'
-        cls.page.write_text(re.sub(r'<script\b.*?</script\s*>', '', html, flags=re.S | re.I))
+        cls.page.write_text(re.sub(r'<script\b.*?</script\b[^>]*>', '', html, flags=re.S | re.I))
         still = '<style>*,*::before,*::after{transition:none!important;animation:none!important}</style>'   # rows land at once, as under Reduce Motion
         cls.live = Path(cls.tmp.name) / 'live.html'
         cls.live.write_text(html.replace('<head>', '<head>' + still, 1))

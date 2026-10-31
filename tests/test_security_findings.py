@@ -31,7 +31,8 @@ class ScriptFixtureTests(unittest.TestCase):
                 call = calls[0]
                 flags = call.args[2] if call.func.attr == 'findall' else next(k.value for k in call.keywords if k.arg == 'flags')
                 self.assertEqual(ast.dump(flags), ast.dump(ast.parse('re.S | re.I', mode='eval').body))
-                self.assertTrue(re.search(call.args[0].value, '<SCRIPT>safe()</SCRIPT >', re.S | re.I))
+                for closing in ('</SCRIPT >', '</script\t\n ignored>'):
+                    self.assertTrue(re.search(call.args[0].value, '<SCRIPT>safe()' + closing, re.S | re.I))
 
 
 class PrivateTextTests(unittest.TestCase):
