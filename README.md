@@ -4,6 +4,10 @@ A customized fork of [Atticus for macOS](https://github.com/SaarthurR/atticus-ma
 
 **Current delivered Mac preview: v3.5. Last updated: 2026-10-31 UTC.** Exact source: `dc1780e84de5beef9c0830063fb035f87915e7f0`. Public source repository: [jrish11/ATLAS](https://github.com/jrish11/ATLAS). The owner approved public publication; this repository contains sanitized exports rather than the raw local customized commit graph. See [release metadata](RELEASE-METADATA.json), [changelog](CHANGELOG.md), [release inventory](RELEASES.md) and [build instructions](docs/BUILD.md).
 
+## Download and versions
+
+[Download the experimental macOS v3.5 ZIP](https://github.com/jrish11/ATLAS/releases/download/v3.5/ATLAS-v3.5-macOS-arm64-PUBLIC.zip) · [All documented prereleases](https://github.com/jrish11/ATLAS/releases) · [Source tags](https://github.com/jrish11/ATLAS/tags). Apple Silicon/macOS 26+, ad-hoc signed and not notarized; read setup requirements and limitations first. Windows remains source-only. Historical prereleases expose source, not private older binaries.
+
 ## Current behavior
 
 - Known confirmed destinations and supported exact media commands can use deterministic local routing without model planning. Real voice-to-action latency and general browser success have not been established.

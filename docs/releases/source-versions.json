@@ -9,10 +9,11 @@
     "sanitized_text_files": [
       "docs/personal/STATUS.md"
     ],
-    "tag_status": "public-source tag prepared for verified push",
+    "tag_status": "published sanitized source tag and experimental prerelease",
     "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
     "export_commit": "e8895b9df168f223d81b6f8a41f1fd1ff210767c",
-    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3"
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3",
+    "github_release_url": "https://github.com/jrish11/ATLAS/releases/tag/v3"
   },
   {
     "version": "v3.1",
@@ -24,10 +25,11 @@
     "sanitized_text_files": [
       "docs/personal/STATUS.md"
     ],
-    "tag_status": "public-source tag prepared for verified push",
+    "tag_status": "published sanitized source tag and experimental prerelease",
     "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
     "export_commit": "e81c7a9f41e7131003439caacc5dd460b00d6a26",
-    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.1"
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.1",
+    "github_release_url": "https://github.com/jrish11/ATLAS/releases/tag/v3.1"
   },
   {
     "version": "v3.2",
@@ -39,10 +41,11 @@
     "sanitized_text_files": [
       "docs/personal/STATUS.md"
     ],
-    "tag_status": "public-source tag prepared for verified push",
+    "tag_status": "published sanitized source tag and experimental prerelease",
     "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
     "export_commit": "b8806cc33d0d3a1fc1ea308f4f915282afd93e43",
-    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.2"
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.2",
+    "github_release_url": "https://github.com/jrish11/ATLAS/releases/tag/v3.2"
   },
   {
     "version": "v3.3",
@@ -54,10 +57,11 @@
     "sanitized_text_files": [
       "docs/personal/STATUS.md"
     ],
-    "tag_status": "public-source tag prepared for verified push",
+    "tag_status": "published sanitized source tag and experimental prerelease",
     "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
     "export_commit": "78e4b11d776c82a0d3d66013fab7ff4f72fbe014",
-    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.3"
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.3",
+    "github_release_url": "https://github.com/jrish11/ATLAS/releases/tag/v3.3"
   },
   {
     "version": "v3.4",
@@ -69,10 +73,11 @@
     "sanitized_text_files": [
       "docs/personal/STATUS.md"
     ],
-    "tag_status": "public-source tag prepared for verified push",
+    "tag_status": "published sanitized source tag and experimental prerelease",
     "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
     "export_commit": "22ebdc0d82eecc227739db31a841a064c6c20577",
-    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.4"
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.4",
+    "github_release_url": "https://github.com/jrish11/ATLAS/releases/tag/v3.4"
   },
   {
     "version": "v3.5",
@@ -85,9 +90,10 @@
       "tests/test_codex_workspace.py",
       "docs/personal/STATUS.md"
     ],
-    "tag_status": "public-source tag prepared for verified push",
+    "tag_status": "published sanitized source tag and experimental prerelease",
     "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
     "export_commit": "fedb933ad892f5e19d73d16ab25f0fe63aa1c6de",
-    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.5"
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.5",
+    "github_release_url": "https://github.com/jrish11/ATLAS/releases/tag/v3.5"
   }
 ]
