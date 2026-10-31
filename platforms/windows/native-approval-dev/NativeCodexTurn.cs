@@ -77,10 +77,23 @@ internal sealed class NativeCodexTurn
     private static bool IsEmpty(JsonElement value) => value.ValueKind == JsonValueKind.Null || value.ValueKind == JsonValueKind.False || (value.ValueKind == JsonValueKind.Object && !value.EnumerateObject().Any()) || (value.ValueKind == JsonValueKind.Array && value.GetArrayLength() == 0);
     private static void Require(bool condition) { if (!condition) throw new InvalidDataException("Provider configuration or scope was not verified."); }
 
+    internal static TimeSpan DispatchAuthority(ApprovalSession authority, WindowsProjectGuard projectGuard)
+    {
+        // Filesystem checks run on the writer outside the session authority lock.
+        projectGuard.EnsureActive();
+        return authority.AuthorityRemaining();
+    }
+
     private async Task<JsonElement> RequestAsync(string method, object parameters, CancellationToken cancellation, bool captureEarly = false)
     {
         project.EnsureActive(); cancellation.ThrowIfCancellationRequested();
-        long id = Interlocked.Increment(ref sequence); channel.Send(new { id, method, @params = parameters });
+        long id = Interlocked.Increment(ref sequence);
+        var frame = new { id, method, @params = parameters };
+        if (method is "thread/start" or "turn/start")
+        {
+            if (!session.CommitIfActive(cancellation, () => channel.Send(frame, cancellation, session.RevocationToken, () => DispatchAuthority(session, project)))) throw new OperationCanceledException();
+        }
+        else channel.Send(frame);
         var deadline = new ElapsedDeadline(TimeSpan.FromSeconds(30), elapsed);
         while (true)
         {
@@ -253,7 +266,7 @@ internal sealed class NativeCodexTurn
             var decision = session.Decide(request, nativePrompt);
             if (decision.Decision != "accept") approvalDenied = true;
             project.EnsureActive();
-            if (!session.CommitIfActive(stop, () => channel.Send(new { id = id.Clone(), result = new { decision = decision.Decision } }, stop, session.RevocationToken, session.AuthorityRemaining))) throw new OperationCanceledException();
+            if (!session.CommitIfActive(stop, () => channel.Send(new { id = id.Clone(), result = new { decision = decision.Decision } }, stop, session.RevocationToken, () => DispatchAuthority(session, project)))) throw new OperationCanceledException();
             return null;
         }
         if (Terminal(item, out string status)) return new NativeTurnResult(approvalDenied ? "approval denied" : status, text.ToString(), status);

@@ -168,6 +168,37 @@ static class NativeApprovalTests
             }
             catch (Exception ex) { mutationFailure = ex; throw; }
             finally { if (mutated) CleanupWithoutMasking(() => RemoveFixtureJunction(selected, target, scratch), mutationFailure); }
+            foreach (string frameKind in new[] { "thread/start", "turn/start", "approval" })
+            {
+                string marker = Path.Combine(scratch, "project-boundary-" + Guid.NewGuid().ToString("N"));
+                var owner = new ApprovalSession("fixture task", selected, "workspace-write; network-disabled", () => DateTimeOffset.UtcNow, TimeSpan.FromMinutes(2));
+                var info = new System.Diagnostics.ProcessStartInfo(Path.GetFullPath(args[0])) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true };
+                info.ArgumentList.Add(Path.GetFullPath(args[2]));
+                info.Environment["ATLAS_FIXTURE_PROFILE"] = "atlas_" + Guid.NewGuid().ToString("N");
+                info.Environment["ATLAS_FIXTURE_PROJECT"] = selected;
+                info.Environment["ATLAS_FIXTURE_MODE"] = "delayed_read";
+                info.Environment["ATLAS_FIXTURE_MARKER"] = marker;
+                var guard = WindowsProjectGuard.Open(selected);
+                using var provider = new CodexProcessChannel(info);
+                bool fixtureMutated = false; Exception fixtureFailure = null;
+                try
+                {
+                    provider.Send(new { data = new string('x', 900_000) });
+                    object frame = frameKind == "approval" ? new { id = "fixture", result = new { decision = "accept" } } : new { id = "fixture", method = frameKind };
+                    Require(owner.CommitIfActive(CancellationToken.None, () => provider.Send(frame, CancellationToken.None, owner.RevocationToken, () => NativeCodexTurn.DispatchAuthority(owner, guard))), "project-bound frame queued");
+                    fixtureMutated = TrySetJunction(selected, target);
+                    if (!fixtureMutated) { guard.Dispose(); Console.WriteLine("OS denied in-place mutation; checking disposed project identity instead for " + frameKind); }
+                    System.Threading.Thread.Sleep(1800);
+                    Require(!File.Exists(marker), "changed project prevented " + frameKind);
+                }
+                catch (Exception ex) { fixtureFailure = ex; throw; }
+                finally
+                {
+                    provider.Dispose(); guard.Dispose();
+                    if (fixtureMutated) CleanupWithoutMasking(() => RemoveFixtureJunction(selected, target, scratch), fixtureFailure);
+                    if (File.Exists(marker)) File.Delete(marker);
+                }
+            }
             foreach (string mode in new[] { "ok", "unsafe", "stale", "cancel", "duplicate", "conflict", "late", "duplicate_cancel" })
             {
                 using var guard = WindowsProjectGuard.Open(scratch);

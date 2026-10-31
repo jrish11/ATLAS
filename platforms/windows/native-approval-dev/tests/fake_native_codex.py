@@ -15,7 +15,7 @@ if mode == 'delayed_read':
     time.sleep(1)
     for line in sys.stdin:
         value = json.loads(line)
-        if value.get('result', {}).get('decision') == 'accept':
+        if value.get('result', {}).get('decision') == 'accept' or value.get('method') in ('thread/start', 'turn/start'):
             with open(os.environ['ATLAS_FIXTURE_MARKER'], 'w', encoding='utf-8') as marker:
                 marker.write('unexpected accept')
             break
