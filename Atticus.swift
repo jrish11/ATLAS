@@ -19,6 +19,19 @@ import AudioToolbox
 import NaturalLanguage
 import Security
 
+// Update handshakes never enter model/provider child environments. Cooperating
+// releases hold a shared startup lock before loading profiles or starting jobs.
+UpdateInstallerAcknowledgement.captureAtStartup()
+if Bundle.main.bundleIdentifier == "com.atticus.personal.dev",
+   ![ ["--selftest"], ["--monotonic-selftest"] ].contains(Array(CommandLine.arguments.dropFirst())) {
+    do {
+        let path=try UpdateInstallerIO.canonicalPath(Bundle.main.bundleURL.path)
+        try UpdateInstallationInterlock.acquireForRunningApp(target:URL(fileURLWithPath:path))
+    } catch {
+        let warning=NSAlert();warning.messageText="ATLAS cannot start during an update";warning.informativeText="Another update may be active, or its private state needs inspection. No profile or credentials were opened.";warning.addButton(withTitle:"Quit");warning.runModal();exit(1)
+    }
+}
+
 // A development bundle must never read or write the regular Atticus profile.
 if Bundle.main.bundleIdentifier == "com.atticus.personal.dev" {
     setenv("ATTICUS_DIR", NSHomeDirectory() + "/.config/atticus-personal-dev", 1)
@@ -6660,7 +6673,9 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         case "clearDictate":
             if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
             Prefs.set("dictateHotkeyOff", true); recording = "dictate"; done((-1, 0, ""))
-        case "checkUpdate": Updater.check { [weak self] in self?.push() }
+        case "checkUpdate":
+            if Updater.manualUpdates { DispatchQueue.main.async { SignedUpdateWindow.shared.show() } }
+            else { Updater.check { [weak self] in self?.push() } }
         case "agents": agentsUI.openView()
         case "routineRemove":
             guard let id = b["id"] as? String else { return }
@@ -9497,5 +9512,29 @@ NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
     guard let action, NSApp.sendAction(action, to: nil, from: nil) else { return e }
     return nil
 }
+DispatchQueue.main.async {
+SignedUpdateWindow.shared.isIdle = {
+    !app.busy && !agentsUI.hasLive && !app.engine.isRunning && app.voice?.isRunning != true && meeting.panel == nil && settings.win?.isKeyWindow != true && onboarding.win == nil
+}
+SignedUpdateWindow.shared.install = { prepared in
+    guard SignedUpdateWindow.shared.isIdle() else{throw SignedUpdateError.rejected("Finish active work before installing.")}
+    let target=URL(fileURLWithPath:try UpdateInstallerIO.canonicalPath(Bundle.main.bundleURL.path))
+    let installer=try await Task.detached {
+        try UpdateInstallerLauncher.start(prepared:prepared,target:target,stateDirectory:UpdateInstallerRuntime.stateDirectory(),parentPID:getpid())
+    }.value
+    guard SignedUpdateWindow.shared.isIdle() else{
+        if installer.isRunning{installer.terminate()}
+        throw SignedUpdateError.rejected("New work started. Installation did not proceed; inspect the pending update before retrying.")
+    }
+    // The helper has registered the kernel parent-exit watch. It cannot swap
+    // while this process (or another cooperating instance) holds its lock.
+    NSApplication.shared.terminate(nil)
+}
+}
 NSApplication.shared.setActivationPolicy(.accessory)
+DispatchQueue.main.async {
+    // Startup identity/liveness only; this does not claim model, voice or browser
+    // feature tests passed. A failed acknowledgement leaves recovery explicit.
+    _ = try? UpdateInstallerAcknowledgement.sendIfRequested()
+}
 NSApplication.shared.run()

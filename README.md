@@ -62,3 +62,8 @@ The GitHub Compare & pull request banners are development-branch notices. Claude
 ## Attribution
 
 [Atticus](https://github.com/SaarthurR/atticus-mac): MIT, Copyright (c) 2026 SaarthurR. [Plip](https://github.com/hussainn7/plip-oss): MIT, Copyright (c) 2026 Hussain. Preserve [LICENSE](LICENSE) and [LICENSE-Plip](LICENSE-Plip). The upstream README also credits [Cua Driver](https://github.com/trycua/cua) ideas for background key authentication/menu shortcuts. This fork is not an endorsement by those projects. The original README is retained under `docs/UPSTREAM-README.md`.
+
+
+## Signed updater development branch
+
+This branch adds a disabled signed-only updater pipeline to the First Light build 3 base. It does not promote a production release or replace the later phone/frontend work. Publisher keys remain unconfigured; the first protocol-aware installation is manual. See [implementation and trust gates](updater/README.md) and [validation evidence](updater/TEST-RESULTS-2026-10-31.md).
