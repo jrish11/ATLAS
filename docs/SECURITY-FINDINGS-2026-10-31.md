@@ -4,6 +4,17 @@ Baseline: public `main` at `51f5cffe24a56297142b385f0a3534e5bc8673f2`.
 This is a finding-by-finding review, not a claim that the repository is secure.
 Do not close a finding solely because a related change appears in a draft PR.
 
+An independent review examined every reported thread flow in baseline Python
+SARIF analysis `2069506111`. For alerts 7–9, 11–13, and 15–18, its modeled
+Keychain source crosses separate calls to `pref`: the actual Keychain branch
+only runs for `apiKey`, whereas the reported sink paths call it for other
+literal keys. For 17–18 the trace also conflates the routine model field with
+separate request evidence. Synthetic fake-Keychain tests supported that narrow
+conclusion for both source copies. This does not rule out secrets typed by an
+owner or other sensitive content in the same outputs or plaintext files, and
+does not establish that unrelated data flows are safe. Those findings remain
+open while the actual privacy boundary and request retention are reviewed.
+
 | Alert | Location and assessment | Disposition |
 | --- | --- | --- |
 | 1 | Windows settings integration URL was placed into an anchor. A configured non-HTTP URL could become a script URL. | Draft fix restricts scheme and destination origin; scanner and review pending. |
@@ -30,5 +41,8 @@ The CodeQL C/C++ job in run 41236304698 failed because it found no source files;
 it did not provide C/C++ coverage. The current configured language list should
 be reviewed against actual maintained source, without disabling meaningful scans.
 The Windows job in the same historical run failed in Codex provider tests,
-including a hard-coded `/tmp` path and skill-path verification. Coordinate the
-platform fix with the Windows owner and rerun on the exact resulting commit.
+including a hard-coded `/tmp` path and fixture skill-path verification. Commit
+`ea1b233` corrected those fixture paths, and Windows runs 41237172660 and
+41237532147 passed. The latter commit is an ancestor of this baseline, with no
+intervening Windows source, workflow, or staging changes. A separate Windows
+run is still required for the settings change in this security branch.
