@@ -95,5 +95,16 @@
     "export_commit": "fedb933ad892f5e19d73d16ab25f0fe63aa1c6de",
     "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.5",
     "github_release_url": "https://github.com/jrish11/ATLAS/releases/tag/v3.5"
+  },
+  {
+    "version": "v3.6",
+    "original_source_commit": "ef7dfe5f92ba7a5e1d8ad824c1fa9772765f8d04",
+    "source_commit_time_utc": "2026-10-31T14:28:29-04:00",
+    "summary": "Scoped background safeguards and preference-race fixes, Settings appearance and verified Source code link.",
+    "sanitized_text_files": [],
+    "tag_status": "sanitized tag prepared for publication",
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.6",
+    "github_release_url": "https://github.com/jrish11/ATLAS/releases/tag/v3.6",
+    "binary_status": "public-safe ZIP audited, separate private companion excluded"
   }
 ]

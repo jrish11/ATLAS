@@ -58,7 +58,7 @@ class DeadlineDispatchTests(unittest.TestCase):
    if len(calls)==1:b.shutdown(socket.SHUT_RDWR)
    return SimpleNamespace(returncode=0,stdout='absent')
   def actual_policy(item,authorize):return original(item,runner=runner,authorize=authorize)
-  with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'ATTICUS_ASK':d,'ATTICUS_DIR':d},clear=False), patch.object(approval_channel,'TOOL_FD',a.fileno()), patch.object(atticus,'autonomy_store',return_value=None), patch.object(personal_commands,'resolve',return_value=row), patch.object(personal_commands,'open_destination',side_effect=actual_policy):
+  with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'ATTICUS_ASK':d,'ATTICUS_DIR':d},clear=False), patch.object(approval_channel,'TOOL_FD',a.fileno()), patch.object(atticus,'autonomy_store',return_value=None), patch.object(atticus,'pref',return_value=False), patch.object(personal_commands,'resolve',return_value=row), patch.object(personal_commands,'open_destination',side_effect=actual_policy):
    result=atticus.foreground_saved_tool({'name':'Fixture'},approve=lambda _:approval_channel.Approval('y'))
   self.assertEqual(len(calls),1);self.assertIn('cancelled',result['text'])
  def test_manual_saved_url_live_channel_allows_fake_open(self):
@@ -69,6 +69,6 @@ class DeadlineDispatchTests(unittest.TestCase):
   a,b=socket.socketpair();self.addCleanup(a.close);self.addCleanup(b.close);calls=[];original=personal_commands.open_destination
   def runner(args,**kwargs):calls.append(args);return SimpleNamespace(returncode=0,stdout='absent')
   def actual_policy(item,authorize):return original(item,runner=runner,authorize=authorize)
-  with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'ATTICUS_ASK':d,'ATTICUS_DIR':d},clear=False), patch.object(approval_channel,'TOOL_FD',a.fileno()), patch.object(atticus,'autonomy_store',return_value=None), patch.object(personal_commands,'resolve',return_value=row), patch.object(personal_commands,'open_destination',side_effect=actual_policy):
+  with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'ATTICUS_ASK':d,'ATTICUS_DIR':d},clear=False), patch.object(approval_channel,'TOOL_FD',a.fileno()), patch.object(atticus,'autonomy_store',return_value=None), patch.object(atticus,'pref',return_value=False), patch.object(personal_commands,'resolve',return_value=row), patch.object(personal_commands,'open_destination',side_effect=actual_policy):
    result=atticus.foreground_saved_tool({'name':'Fixture'},approve=lambda _:approval_channel.Approval('y'))
   self.assertEqual(len(calls),2);self.assertIn('Requested',result['text'])

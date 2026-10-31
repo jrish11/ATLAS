@@ -7,6 +7,7 @@ class ProcessIntegrationTests(unittest.TestCase):
  def run_helper(self, allowed):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);ask=root/'ask';ask.mkdir();state=root/'state';state.mkdir();fake=root/'fake-app'
+   (state/'settings.json').write_text(json.dumps({'foregroundKeepFocus':False}))
    fake.write_text('#!/usr/bin/python3\nimport json,sys\nr={"bundle_id":"com.example.Fixture","path":"/Applications/Fixture.app","pid":7,"started":"123"}\nif len(sys.argv)>2:r["focused"]=True\nprint(json.dumps(r))\n');fake.chmod(0o700)
    src="""const {spawnSync}=require('node:child_process');const io=Array(199).fill('ignore');io[0]='pipe';io[1]='pipe';io[2]='pipe';io[198]=198;const r=spawnSync('/bin/sh',[process.env.ATTICUS_ME,'--foreground-control'],{input:JSON.stringify({action:'focus_app',bundle_id:'com.example.Fixture'}),encoding:'utf8',env:process.env,stdio:io,timeout:5000});process.stdout.write(r.stdout);process.stderr.write(r.stderr);process.exit(r.status||0);"""
    owner,child=socket.socketpair();self.addCleanup(owner.close);self.addCleanup(child.close)

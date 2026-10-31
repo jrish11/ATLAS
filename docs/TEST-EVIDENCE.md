@@ -1,6 +1,10 @@
 # Evidence and limits
 
-## Latest delivered Mac v3.5
+## Latest Mac v3.6
+
+Final source `ef7dfe5f92ba7a5e1d8ad824c1fa9772765f8d04`:139 focused synthetic tests passed,0 failures,0 skips;17 packaging tests passed. Both ZIPs passed relocation, strict deep signatures, both native self-tests and37 resource hashes. 42 public payload files scanned with0 known private identifiers or unclassified credentials. Actual native Settings/theme, background apps, voice/browser permissions and live integrated Codex remain unverified. No model/API calls.
+
+## Previous Mac v3.5
 
 Reviewed implementation `97f5bdbd4981d76e388ea786e25554a4917a768c`; final `dc1780e84de5beef9c0830063fb035f87915e7f0` adds only the About version label.102 focused tests passed with0 failures/0 skips, plus13 additional bounded intent probes.17 packaging tests passed. Both private and separate public-safe ZIPs passed relocated deep signature checks, both native self-tests and37 resource hashes. These are actual synthetic/local software checks, not interactive UI validation.
 

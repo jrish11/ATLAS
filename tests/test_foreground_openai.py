@@ -104,6 +104,8 @@ class ExternalPiResolutionTests(unittest.TestCase):
                 loader.assert_not_called()
 
 class SavedDestinationToolTests(unittest.TestCase):
+    def setUp(self):
+        p=patch.object(atticus,'pref',return_value=False);p.start();self.addCleanup(p.stop)
     def test_approval_denial_cancel_change_and_success(self):
         row={'label':'Fixture','url':'https://example.org/','confirmed':True,'aliases':['fixture'],'browser':'Safari'}
         opener=Mock(return_value='Requested opening Fixture in Safari.')

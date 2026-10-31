@@ -1577,19 +1577,39 @@ def direct_media_intent(text):
     return None
 
 
-def direct_media_execute(intent, runner=subprocess.run):
+def background_capability(route, kind=''):
+    """Conservative capability map; classification grants no action authority."""
+    if route == 'media' and kind in ('volume','volume_delta','transport','invalid_volume'): return 'background-safe'
+    if route == 'media' and kind in ('spotify_track','spotify_search','quit_music'): return 'foreground-required'
+    if route in ('saved_destination','open_app','focus_app'): return 'foreground-required'
+    if route == 'named_ax_press': return 'background-safe'
+    return 'unsupported'
+
+
+def background_helper_blocked(action):
+    """Block legacy helpers that may use global input or launch an app from a task."""
+    return bool((os.environ.get('ATTICUS_ASK') or os.environ.get('ATTICUS_AGENT')) and
+                pref('foregroundKeepFocus',True) is not False and action in ('--type','--play','--queue'))
+
+
+def direct_media_execute(intent, runner=subprocess.run, background_only=False, background_check=None):
     """One fixed command per explicit intent; never interpret media text as code."""
     kind=intent.get('kind')
+    capability=background_capability('media',kind)
+    active=background_check or (lambda: background_only)
+    if active() and capability!='background-safe': return 'This media action requires the foreground or is unsupported. Turn off Do not interrupt my work to proceed.'
     if kind=='invalid_volume': return 'Volume must be between 0 and 100 percent.'
     if kind=='spotify_track':
         track=intent.get('id')
         if not isinstance(track,str) or not re.fullmatch(r'[A-Za-z0-9]{22}',track): return 'That media action is not supported.'
         script='on run argv\ntell application id \"com.spotify.client\"\nplay track (item 1 of argv)\ndelay 0.5\nreturn (player state as text) & \"|\" & (id of current track as text)\nend tell\nend run'
+        if active(): return 'This media action requires the foreground. Nothing was played.'
         try: result=runner(['/usr/bin/osascript','-e',script,'spotify:track:'+track],capture_output=True,text=True,timeout=15)
         except (OSError,subprocess.TimeoutExpired):return 'Could not start the Spotify track. Check macOS permissions before trying again.'
         if result.returncode:return 'Could not start the Spotify track. Check macOS permissions before trying again.'
         return 'Playing the requested Spotify track.' if result.stdout.strip()=='playing|spotify:track:'+track else 'Spotify accepted the request, but playback of that track could not be verified.'
     if kind=='spotify_search':
+        if active(): return 'This media action requires the foreground. Nothing was opened.'
         try:
             result=runner(['/usr/bin/open','spotify:search:'+urllib.parse.quote(intent['query'],safe='')],capture_output=True,text=True,timeout=10)
         except (OSError,subprocess.TimeoutExpired):return 'Could not open the Spotify search.'
@@ -1605,6 +1625,7 @@ def direct_media_execute(intent, runner=subprocess.run):
         action='quit' if kind=='quit_music' else intent['action']
         script='tell application "System Events" to set appRunning to exists (first process whose bundle identifier is "'+bundle+'")\nif not appRunning then return "not running"\ntell application id "'+bundle+'" to '+action+'\nreturn "requested"'
     else:return 'That media action is not supported.'
+    if capability!='background-safe' and active(): return 'This media action requires the foreground. Nothing was done.'
     try: result=runner(['/usr/bin/osascript','-e',script],capture_output=True,text=True,timeout=10)
     except (OSError,subprocess.TimeoutExpired):return 'The media action could not be completed. Check macOS permissions before trying again.'
     if result.returncode: return 'The media action could not be completed. Check macOS permissions before trying again.'
@@ -2389,6 +2410,7 @@ def fast(text):
     if destination and os.environ.get('ATTICUS_LIVE') != '1':
         if destination.get('ambiguous'):
             return 'More than one saved destination matches. Please clarify which one.'
+        if os.environ.get('ATTICUS_AGENT') and pref('foregroundKeepFocus',True) is not False: return 'Opening this destination requires the foreground. Turn off Do not interrupt my work to proceed.'
         return personal_commands.open_destination(destination)
     if t in ('report feedback', 'report a bug'):
         if os.environ.get('ATTICUS_LIVE') == '1': return None
@@ -3182,6 +3204,8 @@ def hands_env(args, target=None, state=None):
     window, strict = hands_pin(args, target, state)
     if window is None: return None, False
     env = {**os.environ, 'ATTICUS_DIR': DIR, 'ATTICUS_FOCUS_REQUESTED': '1' if wants_focus() else '0'}
+    if (os.environ.get('ATTICUS_ASK') or os.environ.get('ATTICUS_AGENT')) and pref('foregroundKeepFocus',True) is not False:
+        env.update(ATTICUS_AX_ONLY='1', ATTICUS_BACKGROUND_ONLY='1', ATTICUS_FOCUS_REQUESTED='0')
     if window.isdigit() and int(window) > 0: env['ATTICUS_HANDS_WINDOW'] = window
     else: env.pop('ATTICUS_HANDS_WINDOW', None)
     return env, bool(window) and not strict
@@ -4312,11 +4336,13 @@ def foreground_control_request(request):
         except (OSError,ValueError,subprocess.TimeoutExpired): return None
     def approval(question): return approval_channel.tool_approval(question,60)
     def launch(app):
+        if pref('foregroundKeepFocus',True) is not False: return {'status':'needs_foreground','text':'The setting changed; nothing was opened.'}
         try:
             result=subprocess.run(['/usr/bin/open','-a',app['path']],capture_output=True,text=True,timeout=10)
             return {'status':'unverified','text':'App opening was requested; check the app before continuing.'} if result.returncode==0 else {'status':'unverified','text':'App opening could not be verified; inspect before retrying.'}
         except (OSError,subprocess.TimeoutExpired): return {'status':'unverified','text':'App opening could not be verified; inspect before retrying.'}
     def focus(app):
+        if pref('foregroundKeepFocus',True) is not False: return {'status':'needs_foreground','text':'The setting changed; the app was not focused.'}
         try:
             r=subprocess.run([APP,'--foreground-app-info',app['bundle_id'],'focus',str(app['pid']),app['started']],capture_output=True,text=True,timeout=5)
             result=json.loads(r.stdout) if r.returncode==0 else {}
@@ -4325,12 +4351,14 @@ def foreground_control_request(request):
         except (OSError,ValueError,subprocess.TimeoutExpired): return {'status':'unverified','text':'Focus could not be verified; inspect before retrying.'}
     def click(bundle,target,authorize):
         os.environ['ATTICUS_AX_ONLY']='1';os.environ['ATTICUS_HANDS_STATE']=os.path.join(ask,'foreground-hands.json')
+        os.environ['ATTICUS_BACKGROUND_ONLY']='1' if pref('foregroundKeepFocus',True) is not False else '0'
         try:
             mapped=hands_call(['see',bundle],timeout=8)
             if mapped.returncode: return {'status':'blocked','text':'Accessibility access or the target window is unavailable; nothing was pressed.'}
             if cancelled(): return {'status':'cancelled','text':'The request was cancelled; nothing was pressed.'}
             check,result=hands_action(['click',target],authorize,timeout=65)
             if check is None: return {'status':'blocked','text':'The control could not be identified; nothing was pressed.'}
+            if result.returncode and result.stdout.startswith('needs_foreground:'): return {'status':'needs_foreground','text':result.stdout.strip()}
             if result.returncode: return {'status':'unverified','text':'The control action could not be verified; inspect before retrying.'}
             return {'status':'unverified','text':'The Accessibility press was dispatched; inspect the app before continuing.'}
         except (OSError,ValueError,InterruptedError,subprocess.TimeoutExpired): return {'status':'unverified','text':'The action outcome is unknown; inspect before retrying.'}
@@ -4340,13 +4368,13 @@ def foreground_control_request(request):
         target={'type':'app','id':app['bundle_id'],'revision':autonomy_policy.fingerprint({'bundle_id':app['bundle_id'],'path':app['path']})}
         result=[]
         def perform():
-            if cancelled() or lookup(app['bundle_id']) != app or os.path.lexists(store.stop_path): result.append({'status':'cancelled','text':'The app changed or the request was cancelled.'}); return
+            if cancelled() or lookup(app['bundle_id']) != app or os.path.lexists(store.stop_path) or pref('foregroundKeepFocus',True) is not False: result.append({'status':'cancelled','text':'The app or setting changed, or the request was cancelled.'}); return
             result.append((launch if action=='open_app' else focus)(app))
         try:
             if store.dispatch(action,target,time.monotonic,perform): return result[0]
         except (OSError,ValueError): pass
         return None
-    return foreground_control.handle(request,lookup,approval,launch,focus,click,cancelled,automatic)
+    return foreground_control.handle(request,lookup,approval,launch,focus,click,cancelled,automatic,background_only=pref('foregroundKeepFocus',True) is not False,background_check=lambda:pref('foregroundKeepFocus',True) is not False)
 
 
 
@@ -4372,27 +4400,33 @@ def foreground_saved_tool(request, approve=None, open_action=None):
     phrase='open '+request['name'].strip()
     row=personal_commands.resolve(DIR,phrase)
     if not row or row.get('ambiguous') or row.get('type') == 'document' or not isinstance(row.get('label'),str) or not row['label'] or len(row['label']) > 120: return {'text':'No unique confirmed saved destination matches.'}
+    if pref('foregroundKeepFocus',True) is not False: return {'status':'needs_foreground','text':'Opening this destination requires the foreground. Turn off Do not interrupt my work to proceed.'}
     approve=approve or (lambda question: approval_channel.tool_approval(question,60))
     open_action=open_action or personal_commands.open_destination
     store=autonomy_store()
     if store:
         target={'type':'destination','id':row['label'],'revision':autonomy_policy.fingerprint(row)}; result=[]
         def perform():
-            if os.getppid()!=parent or not os.path.isdir(ask) or os.path.exists(os.path.join(ask,'declined')) or personal_commands.resolve(DIR,phrase)!=row or os.path.lexists(store.stop_path): result.append({'text':'The saved destination changed or the request was cancelled.'}); return
-            result.append({'text':open_action(row)})
+            def still_safe():
+                return (os.getppid()==parent and os.path.isdir(ask) and not os.path.exists(os.path.join(ask,'declined')) and
+                        personal_commands.resolve(DIR,phrase)==row and not os.path.lexists(store.stop_path) and
+                        pref('foregroundKeepFocus',True) is False)
+            if not still_safe(): result.append({'text':'The saved destination or setting changed, or the request was cancelled.'}); return
+            result.append({'text':open_action(row,authorize=still_safe) if open_action is personal_commands.open_destination else open_action(row)})
         try:
             if store.dispatch('open_url',target,time.monotonic,perform): return result[0]
         except (OSError,ValueError): pass
     decision=approve({'q':'Open this saved destination in Safari?', 'cmd':row['label']+' — '+row['url']})
-    if decision != 'y' or os.getppid() != parent or not os.path.isdir(ask) or os.path.exists(os.path.join(ask,'declined')): return {'text':'The saved destination was not opened.'}
-    if personal_commands.resolve(DIR,phrase) != row or (getattr(decision,'deadline',None) is not None and (not getattr(decision,'revision',None) or destination_store_revision(DIR)!=decision.revision)) or os.getppid()!=parent or not os.path.isdir(ask) or os.path.exists(os.path.join(ask,'declined')) or not approval_channel.authorized(decision): return {'text':'The saved destination changed, authorization expired, or the request was cancelled.'}
+    if decision != 'y' or os.getppid() != parent or not os.path.isdir(ask) or os.path.exists(os.path.join(ask,'declined')) or pref('foregroundKeepFocus',True) is not False: return {'text':'The saved destination was not opened; the setting may have changed.'}
+    if personal_commands.resolve(DIR,phrase) != row or (getattr(decision,'deadline',None) is not None and (not getattr(decision,'revision',None) or destination_store_revision(DIR)!=decision.revision)) or os.getppid()!=parent or not os.path.isdir(ask) or os.path.exists(os.path.join(ask,'declined')) or not approval_channel.authorized(decision) or pref('foregroundKeepFocus',True) is not False: return {'text':'The saved destination or setting changed, authorization expired, or the request was cancelled.'}
     if isinstance(decision,approval_channel.Approval):
         if open_action is not personal_commands.open_destination: return {'text':'The saved destination cannot be safely verified.'}
         def still_authorized():
             if personal_commands.resolve(DIR,phrase) != row: return False
             if decision.deadline is not None and destination_store_revision(DIR)!=decision.revision: return False
-            return os.getppid()==parent and os.path.isdir(ask) and not os.path.exists(os.path.join(ask,'declined')) and approval_channel.authorized(decision)
+            return os.getppid()==parent and os.path.isdir(ask) and not os.path.exists(os.path.join(ask,'declined')) and approval_channel.authorized(decision) and pref('foregroundKeepFocus',True) is False
         return {'text':open_action(row,authorize=still_authorized)}
+    if pref('foregroundKeepFocus',True) is not False: return {'text':'The setting changed; nothing was opened.'}
     return {'text':open_action(row)}
 
 
@@ -8553,6 +8587,7 @@ def main():
         time.sleep(0.5)   # the window draws before the picture
         return print('\n'.join(f'{label}: {path}' for path, label in look(cleanup=False)) or 'no screenshot: ' + need('screen', 'To see your screen for this task.'))
     if args[:1] == ['--type']:
+        if background_helper_blocked('--type'): return print('needs_foreground: Typing requires foreground input; nothing was typed.')
         mapped, pin = cached_hands(), {}
         if isinstance(mapped, dict) and mapped.get('windowID') and mapped.get('focusIdentity'):   # this ask's map pins its window and composer
             env, _ = hands_env(['type'], target=mapped)
@@ -8665,8 +8700,10 @@ def main():
             return say('!', r)
         return say('✓', r)
     if args[:1] == ['--play']:
+        if background_helper_blocked('--play'): return print('needs_foreground: This playback route may activate an app; nothing was played.')
         return print(play(' '.join(args[1:])) or 'nothing found on Spotify by that name')
     if args[:1] == ['--queue']:
+        if background_helper_blocked('--queue'): return print('needs_foreground: This queue route may activate an app; nothing was queued.')
         return print(queue(' '.join(args[1:])))
     if args == ['--state']:   # the Settings window: usage, saved rules, Claude plan
         import memory_destinations, memory_inspector, memory_transactions, memory_corrections, memory_workflows
@@ -8758,8 +8795,8 @@ def main():
         media=direct_media_intent(task) if trusted_context else None
         if media is not None:
             if not wait_commit() or not trusted_native_context_parent(): return say('!', 'The request was cancelled; nothing was done.')
-            reply=direct_media_execute(media)
-            return say('!' if reply.startswith(('Could not','The media action could not','Volume must','That media action')) else '✓',reply)
+            reply=direct_media_execute(media,background_only=pref('foregroundKeepFocus',True) is not False,background_check=lambda:pref('foregroundKeepFocus',True) is not False)
+            return say('!' if reply.startswith(('Could not','The media action could not','Volume must','That media action','This media action')) else '✓',reply)
         destination=personal_commands.resolve(DIR,plain(task))
         if destination and (destination.get('type') == 'document' or destination.get('ambiguous')):
             if not wait_commit(): return say('!', 'The request was cancelled; nothing was opened.')

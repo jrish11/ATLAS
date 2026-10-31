@@ -199,7 +199,7 @@ enum DictationData {
 enum Prefs {
     static let path = (ProcessInfo.processInfo.environment["ATTICUS_DIR"] ?? NSString(string: "~/.config/atticus").expandingTildeInPath) + "/settings.json"
     static let defaults: [String: Any] = ["hotkeyCode": 49, "hotkeyMods": controlKey | optionKey, "hotkeyLabel": "⌃⌥Space", "login": true, "paused": false, "corner": "top-left", "linger": "normal",
-        "foregroundSavedDestinations": false, "foregroundAppControl": false, "soundStart": "Pop", "soundRelease": "Bottle", "soundDone": "Glass", "soundStop": "Tink", "volume": 0.16, "client": "claude", "model": "haiku", "instant": true,
+        "foregroundSavedDestinations": false, "foregroundAppControl": false, "foregroundKeepFocus": true, "settingsAppearance": "system", "soundStart": "Pop", "soundRelease": "Bottle", "soundDone": "Glass", "soundStop": "Tink", "volume": 0.16, "client": "claude", "model": "haiku", "instant": true,
         "wakeWord": false, "wakeWordName": "Atticus", "microphone": "automatic", "quietAudio": false, "quietLevel": 0.18, "agentModel": "sonnet", "agentUserTools": true, "fixSetup": false,
         "meetingStyle": "Direct", "meetingCustom": "", "meetingStyles": [
             ["name": "Direct", "text": "Lead with the answer in plain words. No hedging or filler."],
@@ -6045,6 +6045,18 @@ final class LocalFolderReadScope {
     }
 }
 
+// An absent or unknown preference preserves the previous system-following behavior.
+func settingsAppearance(_ value: String) -> NSAppearance? {
+    switch value {
+    case "light": return NSAppearance(named:.aqua)
+    case "dark": return NSAppearance(named:.darkAqua)
+    default: return nil
+    }
+}
+
+// Public source for this customized fork; upstream attribution remains in About and Licenses.
+let atlasSourceRepository = URL(string:"https://github.com/jrish11/ATLAS")!
+
 final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate, NSWindowDelegate {
     var win: NSWindow?, web: WKWebView?
     var feedbackJob = 0, feedbackURL: URL?
@@ -6064,6 +6076,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 560),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         applySharing(w)
+        w.appearance = settingsAppearance(Prefs.str("settingsAppearance"))
         w.titlebarAppearsTransparent = true; w.titleVisibility = .hidden; w.title = "ATLAS Settings"
         w.isReleasedWhenClosed = false; w.delegate = self
         w.contentMinSize = NSSize(width: 700, height: 460); w.contentMaxSize = NSSize(width: 1000, height: 820)   // wider only spreads the page into empty space
@@ -6303,6 +6316,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
 
     func apply(_ k: String, _ v: Any) {   // one setting changed, from this window or by voice (atticus.py --set)
         if k == "foregroundContextShare" { return } // only the native review flow may opt in
+        if k == "settingsAppearance" && !["system","light","dark"].contains(v as? String ?? "") { return }
         if ["client","foregroundProvider","foregroundModel"].contains(k) { app.clearForegroundContextConsent() }
         if k == "meetingSave", v as? Bool == false, Prefs.bool("meetingSave") {
             guard Prefs.set(k, false) else { push(); send("notice", ["text": "Couldn’t save that change, so the old setting is back."]); return }
@@ -6317,6 +6331,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
             push(); send("notice", ["text": text]); return
         }
         if ["apiKey", "codexApiKey"].contains(k), Prefs.bool("keychainMode") { push(); send("notice", ["text": "Provider key setting updated in Keychain."]) }
+        if k == "settingsAppearance" { win?.appearance = settingsAppearance(Prefs.str(k)) }
         if k == "wakeWord" {
             if v as? Bool == true { app.enableWakeWord() }
             else {
@@ -6445,7 +6460,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         case "routineRemove":
             guard let id = b["id"] as? String else { return }
             DispatchQueue.global().async { [weak self] in self?.helper(["--routine","remove",id]); DispatchQueue.main.async { self?.push() } }
-        case "github": NSWorkspace.shared.open(URL(string: "https://github.com/SaarthurR/atticus-mac")!)
+        case "github": NSWorkspace.shared.open(atlasSourceRepository)
         case "kofi": openTipJar("settings")
         case "resetHotkey":
             done((49, controlKey | optionKey, "⌃⌥Space"))   // same rollback and warning as a recorded shortcut
@@ -8705,6 +8720,13 @@ enum Hands {
                 print(String(data: try JSONSerialization.data(withJSONObject: text), encoding: .utf8)!); return 0
             }
             try validate(input); try trusted()
+            if env["ATTICUS_BACKGROUND_ONLY"] == "1" {
+                var namedClick=false
+                if input[0] == "click" { let location=try point(input[1]); namedClick = !input[1].contains(">") && location == nil }
+                guard input[0] == "see" || namedClick else {
+                    throw Failure("needs_foreground: This action is not supported without foreground input; nothing was done.")
+                }
+            }
             if input[0] == "see" { let m = try capture(try app(input.count > 1 ? input[1] : nil)); try save(m); print(m.description); return 0 }
             if input[0] == "menu" {
                 let a = try app(input[1]), label = try menu(input[2],a,act:false)
@@ -8760,9 +8782,20 @@ enum Hands {
                 if input[1].contains(">") { let label = try menu(input[1],a,act:true); result = "Clicked \(quote(label))" }
                 else {
                     let (near,double,right,front) = try clickOptions(Array(input.dropFirst())), (n,e) = try resolve(input[1],map:before,a:a,near:near), at = exact ?? n.spot; spot = at
+                    // Background app control never raises a window or sends global mouse input.
+                    // Recheck the exact mapped window and whether the user is working in this app.
+                    if env["ATTICUS_BACKGROUND_ONLY"] == "1" {
+                        try checkStopped()
+                        let currentWindow=targetWindow(a)
+                        guard env["ATTICUS_AX_ONLY"] == "1", !front, !double, !right,
+                              backgroundWindowAllowed(expected:before.windowID,actual:currentWindow,targetPID:a.processIdentifier,frontPID:NSWorkspace.shared.frontmostApplication?.processIdentifier,current:targetsCurrent(input,before,a)) else {
+                            throw Failure("needs_foreground: The target window is unavailable, changed, or currently in use. Nothing was pressed.")
+                        }
+                    }
                     // Pressing the element around an unmapped point clicks its center, not the point.
-                    if let e, exact == nil || n.id != 0, !double && !right && !front, perform(e,["AXPress","AXPick","AXConfirm","AXOpen"]) { }
+                    if let e, exact == nil || n.id != 0, !double && !right && !front, perform(e,env["ATTICUS_BACKGROUND_ONLY"] == "1" ? ["AXPress"] : ["AXPress","AXPick","AXConfirm","AXOpen"]) { }
                     else {
+                        if env["ATTICUS_BACKGROUND_ONLY"] == "1" { throw Failure("needs_foreground: This control cannot be pressed using a supported background Accessibility action; nothing was clicked.") }
                         if env["ATTICUS_AX_ONLY"] == "1" { throw Failure("This control has no supported Accessibility press; nothing was clicked.") }
                         // A mouse click can change only pixels (a canvas, a map, a video); they show whether it took.
                         if env["ATTICUS_AX_ONLY"] != "1" { spotPixels = fingerprint(before, around: at) }
@@ -8930,9 +8963,22 @@ if CommandLine.arguments.count >= 3, ["--window-target","--target-app"].contains
     exit(0)
 }
 
+// Pure target check for background Accessibility dispatch; unknown foreground is unsafe.
+func backgroundWindowAllowed(expected:String,actual:UInt32,targetPID:Int32,frontPID:Int32?,current:Bool) -> Bool {
+    guard current, actual > 0, String(actual) == expected, targetPID > 0, let frontPID, frontPID > 0 else { return false }
+    return frontPID != targetPID
+}
+
 // One Atticus at a time: a lock the system drops when the process ends (opened by hand + started by launchd = two)
 if CommandLine.arguments.dropFirst() == ["--monotonic-selftest"] { print(steadyTime()); exit(0) }
 if CommandLine.arguments.dropFirst() == ["--selftest"] {
+    precondition(settingsAppearance("system") == nil && settingsAppearance("unknown") == nil)
+    precondition(settingsAppearance("light")?.name == .aqua && settingsAppearance("dark")?.name == .darkAqua)
+    precondition(backgroundWindowAllowed(expected:"42",actual:42,targetPID:2,frontPID:3,current:true))
+    precondition(!backgroundWindowAllowed(expected:"42",actual:43,targetPID:2,frontPID:3,current:true))
+    precondition(!backgroundWindowAllowed(expected:"42",actual:42,targetPID:2,frontPID:2,current:true))
+    precondition(!backgroundWindowAllowed(expected:"42",actual:42,targetPID:2,frontPID:nil,current:true))
+    precondition(!backgroundWindowAllowed(expected:"42",actual:42,targetPID:2,frontPID:3,current:false))
     precondition(transcriptKey(" Open   Notes. ") == transcriptKey("open notes"))
     precondition(transcriptKey("calculate 1.5") != transcriptKey("calculate 15"))
     precondition(transcriptKey("search a b") != transcriptKey("search ab"))

@@ -1,6 +1,6 @@
 # Verified release inventory
 
-Current delivered Mac preview: **v3.5**. Earlier unavailable prototypes and unverified Windows binaries are not invented here. All six source revisions below exist locally and have sanitized archives in the prepared workspace. The Git tags preserve actual product version names and point to sanitized snapshot commits. These are source tags; older private binary ZIPs are not published. All six tags have explicitly labeled GitHub prerelease records. Only v3.5 has the audited public-safe Mac ZIP attached; no Windows binary or earlier private ZIP was uploaded.
+Current Mac preview: **v3.6**. Earlier unavailable prototypes and unverified Windows binaries are not invented here. All six source revisions below exist locally and have sanitized archives in the prepared workspace. The Git tags preserve actual product version names and point to sanitized snapshot commits. These are source tags; older private binary ZIPs are not published. All six tags have explicitly labeled GitHub prerelease records. Only v3.5 has the audited public-safe Mac ZIP attached; no Windows binary or earlier private ZIP was uploaded.
 
 | Source tag | Original source revision | Source status |
 | --- | --- | --- |
@@ -20,3 +20,7 @@ Windows source-only and remote development snapshots are separate experimental t
 ## Public Mac artifact
 
 [ATLAS v3.5 experimental Mac download](https://github.com/jrish11/ATLAS/releases/download/v3.5/ATLAS-v3.5-macOS-arm64-PUBLIC.zip). GitHub reports the uploaded digest `sha256:43af1cdb16b4a9fb251b2041cdf9b5238a223446a56e43dbc9376fbf0bb24d8b`, matching the locally audited ZIP.
+
+## v3.6 experimental Mac update
+
+Source `ef7dfe5f92ba7a5e1d8ad824c1fa9772765f8d04`. Source tag and public-safe ZIP are being published together; the private optional profile is excluded. Download: https://github.com/jrish11/ATLAS/releases/download/v3.6/ATLAS-v3.6-macOS-arm64-PUBLIC.zip . ZIP bytes2,127,724; SHA256 `2c1335d796fd53880dbb8dbcc57733493b39e952dd5b9626fcc2ab0adf5d259e`. This is a limited test preview, not notarized or live native UI validation.

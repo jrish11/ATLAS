@@ -1,6 +1,16 @@
 # Changelog
 
-Current delivered Mac version: **v3.5**. Last updated: **2026-10-31 UTC**. Times below are verified source commit timestamps, not inferred release-upload times. All entries are limited test previews; no general readiness or live integrated Codex success is claimed.
+Current Mac preview: **v3.6**. Last updated: **2026-10-31 UTC**. Times below are verified source commit timestamps, not inferred release-upload times. All entries are limited test previews; no general readiness or live integrated Codex success is claimed.
+
+## v3.6 — 2026-10-31T14:28:29-04:00
+
+Source: `ef7dfe5f92ba7a5e1d8ad824c1fa9772765f8d04`.
+
+- Added Settings-only System/Light/Dark appearance; no macOS appearance change.
+- Extended foreground-interruption safeguards across covered app, saved-page, media and mapped Accessibility paths. Recheck preference changes at queued action boundaries, invalidating stale click approvals.
+- Explicit owner opens and independent routes/apps can still focus. This does not promise universal background operation or undo already dispatched actions.
+- About links the verified public source repository and displays v3.6. Stable data/runtime/Keychain identities are preserved.
+- 139 focused synthetic regression tests and 17 packaging tests passed; relocated archives passed deep signatures, native self-tests and37 resource hashes. Native interactive appearance/background behavior and integrated live Codex remain unverified. No new model calls.
 
 ## v3.5 — 2026-10-31T16:55:19+00:00
 
