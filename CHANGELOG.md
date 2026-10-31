@@ -6,6 +6,14 @@ Current Mac preview: **v3.6**. Last updated: **2026-10-31 UTC**. Times below are
 
 Planned release-candidate branding and fixes, not a published production release. See docs/releases/ATLAS-1.1-First-Light-DRAFT.md for actual evidence and open gates. Display1.1 deliberately succeeds public3.x previews through increasing internal build metadata; no previous tag is rewritten.
 
+## Windows restricted development checkpoint — 2026-10-31 UTC
+
+- Disabled unsandboxed Claude/Codex model execution and arbitrary learned shell replay after independent approval-file forgery reproduction. Local commands are explicitly unsandboxed; no full Windows AI assistant claim.
+- Removed upstream telemetry/proactive tips and new-profile login startup default. No paid account prerequisite for the restricted preview.
+- Fixed Unix-only test fixtures, preserved reviewed lock/notice bytes, and added explicit per-user Python setup with cancellation and failed-install preservation. Python/runtime DLLs are not redistributed.
+- Actual Windows CI passed 119 unit/fixture tests (zero skips), .NET compilation, original/relocated native and Python self-tests, real hash-locked dependency setup, and exact final archive membership/hashes.
+- Public binary download remains held pending a trusted provider boundary and interactive verification. See [assembly evidence](docs/WINDOWS-ASSEMBLY.md). No Mac release or prior tag was changed.
+
 ## v3.6 — 2026-10-31T14:28:29-04:00
 
 Source: `ef7dfe5f92ba7a5e1d8ad824c1fa9772765f8d04`.

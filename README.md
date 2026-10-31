@@ -10,7 +10,7 @@ A customized fork of [Atticus for macOS](https://github.com/SaarthurR/atticus-ma
 
 ## Download and versions
 
-[Download the experimental macOS v3.6 ZIP](https://github.com/jrish11/ATLAS/releases/download/v3.6/ATLAS-v3.6-macOS-arm64-PUBLIC.zip) · [All documented prereleases](https://github.com/jrish11/ATLAS/releases) · [Source tags](https://github.com/jrish11/ATLAS/tags). Apple Silicon/macOS 26+, ad-hoc signed and not notarized; read setup requirements and limitations first. Windows remains source-only. Historical prereleases expose source, not private older binaries.
+[Download the experimental macOS v3.6 ZIP](https://github.com/jrish11/ATLAS/releases/download/v3.6/ATLAS-v3.6-macOS-arm64-PUBLIC.zip) · [All documented prereleases](https://github.com/jrish11/ATLAS/releases) · [Source tags](https://github.com/jrish11/ATLAS/tags). Apple Silicon/macOS 26+, ad-hoc signed and not notarized; read setup requirements and limitations first. Windows is a restricted local-command development preview with AI agents disabled; no public Windows app release is offered. Historical prereleases expose source, not private older binaries.
 
 ## New in v3.6
 
@@ -35,7 +35,7 @@ A customized fork of [Atticus for macOS](https://github.com/SaarthurR/atticus-ma
 | Track | Status |
 | --- | --- |
 | Mac v3.6 | Apple Silicon / macOS 26+ experimental preview; ad-hoc signed, not Developer ID signed or notarized. External per-device Python/Node/Pi setup is required. |
-| Windows | Separate source-only development at `418df8f59f776dc24ada02afd504603d7a7ffa7c`. No Windows binary or native Windows runtime verification. |
+| Windows | Restricted local-command preview, AI and saved shell replay disabled. Windows CI passed 119 unit/fixture tests, compilation, explicit setup and relocated Python/native self-tests. Public download held pending a trusted provider approval boundary; interactive Windows unverified. See [Windows assembly evidence](docs/WINDOWS-ASSEMBLY.md). |
 | Remote / phone | Separate experimental source at `bd86e865b4a8234284c3cb53ecf9e40fd696368c`; not in the delivered v3.6 app. Off-by-default synthetic integration only; no actual phone/proxy/live Codex validation. |
 | Phone frontend / PWA | Not a ready released product. No independently verified PWA release is represented here. |
 
