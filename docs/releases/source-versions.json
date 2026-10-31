@@ -102,9 +102,9 @@
     "source_commit_time_utc": "2026-10-31T14:28:29-04:00",
     "summary": "Scoped background safeguards and preference-race fixes, Settings appearance and verified Source code link.",
     "sanitized_text_files": [],
-    "tag_status": "sanitized tag prepared for publication",
+    "tag_status": "published verified sanitized tag and experimental prerelease",
     "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.6",
     "github_release_url": "https://github.com/jrish11/ATLAS/releases/tag/v3.6",
-    "binary_status": "public-safe ZIP audited, separate private companion excluded"
+    "binary_status": "public-safe ZIP uploaded; GitHub digest matches audited artifact"
   }
 ]

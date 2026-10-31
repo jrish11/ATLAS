@@ -2,7 +2,7 @@
   "product": "ATLAS",
   "current_delivered_mac_version": "v3.6",
   "current_source_commit": "ef7dfe5f92ba7a5e1d8ad824c1fa9772765f8d04",
-  "last_updated_utc": "2026-10-31T18:32:28.542973+00:00",
+  "last_updated_utc": "2026-10-31T18:34:28.198006+00:00",
   "upstream": "https://github.com/SaarthurR/atticus-mac",
   "upstream_base": "287b2665f96febf581075a97d366dc5d620f3369",
   "repository_visibility": "public",
@@ -13,10 +13,11 @@
   "public_mac_binary": {
     "filename": "ATLAS-v3.6-macOS-arm64-PUBLIC.zip",
     "sha256": "2c1335d796fd53880dbb8dbcc57733493b39e952dd5b9626fcc2ab0adf5d259e",
-    "size_bytes": 2127724
+    "size_bytes": 2127724,
+    "github_verified_digest": "sha256:2c1335d796fd53880dbb8dbcc57733493b39e952dd5b9626fcc2ab0adf5d259e"
   },
   "history": "clean upstream ancestry plus sanitized release snapshot commits/tags; raw customized metadata not published",
-  "release_records": "https://github.com/jrish11/ATLAS/releases",
+  "release_records": "seven verified experimental prereleases v3 throughv3.6",
   "download_url": "https://github.com/jrish11/ATLAS/releases/download/v3.6/ATLAS-v3.6-macOS-arm64-PUBLIC.zip",
   "development_status": "reviewed v3.6 limited preview; native interaction unverified"
 }
