@@ -15,7 +15,6 @@ jobs:
         working-directory: platforms/windows
     env:
       PYTHONUTF8: '1'
-      ATTICUS_DIR: ${{ runner.temp }}\atlas-test-state
     steps:
       - name: Check out reviewed source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -29,6 +28,11 @@ jobs:
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: '10.0.x'
+      - name: Initialize isolated test profile
+        run: |
+          $profile = Join-Path $env:RUNNER_TEMP 'atlas-test-state'
+          New-Item -ItemType Directory -Force $profile | Out-Null
+          "ATTICUS_DIR=$profile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install Python dependencies
         run: |
           python -m pip install -r requirements.txt

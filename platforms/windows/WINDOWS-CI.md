@@ -9,3 +9,5 @@ The workflow and build have not yet run on Windows. A green result would establi
 ## Artifact status
 
 This job is initially unrun. The captured native build alone is not a portable app: it omits the Python helpers, UI/resources and per-device runtime setup. Do not publish it as a working installer or standalone portable release. A subsequent allowlisted package must include required runtime resources and verified dependency license notices, pass privacy/path checks and document explicit per-device Python/WebView2/provider setup. Interactive Windows voice, account/sandbox, approvals and OS behavior remain unverified even after a green CI result.
+
+The first manual dispatch request was rejected before a runner started because runner.temp is unavailable in job-level env. The corrected workflow establishes ATTICUS_DIR through GITHUB_ENV inside an executed runner step. No tests/build ran in that rejected attempt.
