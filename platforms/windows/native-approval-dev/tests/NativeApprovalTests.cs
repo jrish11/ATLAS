@@ -100,23 +100,23 @@ static class NativeApprovalTests
             finally { foreach (var pair in original) Environment.SetEnvironmentVariable(pair.Key, pair.Value); }
             string target = Path.Combine(scratch, "target"); string selected = Path.Combine(scratch, "project-long-directory");
             Directory.CreateDirectory(target); Directory.CreateDirectory(selected);
-            bool rejected = false;
-            try { using var bad = WindowsProjectGuard.Open(selected + "."); } catch (InvalidOperationException) { rejected = true; }
-            Require(rejected, "trailing-dot alias denied");
+            bool pathRejected = false;
+            try { using var bad = WindowsProjectGuard.Open(selected + "."); } catch (InvalidOperationException) { pathRejected = true; }
+            Require(pathRejected, "trailing-dot alias denied");
             var shortPath = new StringBuilder(32768);
             uint shortLength = GetShortPathNameW(selected, shortPath, (uint)shortPath.Capacity);
             if (shortLength > 0 && shortLength < shortPath.Capacity && !string.Equals(selected, shortPath.ToString(), StringComparison.OrdinalIgnoreCase))
             {
-                rejected = false; try { using var bad = WindowsProjectGuard.Open(shortPath.ToString()); } catch (InvalidOperationException) { rejected = true; }
-                Require(rejected, "8.3 project alias denied");
+                pathRejected = false; try { using var bad = WindowsProjectGuard.Open(shortPath.ToString()); } catch (InvalidOperationException) { pathRejected = true; }
+                Require(pathRejected, "8.3 project alias denied");
             }
             else Console.WriteLine("8.3 alias test unavailable on this volume; long-path and trailing-dot tests remain active.");
             var oldCodexHome = Environment.GetEnvironmentVariable("CODEX_HOME");
             try
             {
                 Environment.SetEnvironmentVariable("CODEX_HOME", selected);
-                rejected = false; try { using var bad = WindowsProjectGuard.Open(selected); } catch (InvalidOperationException) { rejected = true; }
-                Require(rejected, "protected project denied");
+                pathRejected = false; try { using var bad = WindowsProjectGuard.Open(selected); } catch (InvalidOperationException) { pathRejected = true; }
+                Require(pathRejected, "protected project denied");
             }
             finally { Environment.SetEnvironmentVariable("CODEX_HOME", oldCodexHome); }
             using (var identity = WindowsProjectGuard.Open(selected))
@@ -124,12 +124,12 @@ static class NativeApprovalTests
                 bool mutated = TrySetJunction(selected, target);
                 if (mutated)
                 {
-                    rejected = false; try { identity.EnsureActive(); } catch (InvalidOperationException) { rejected = true; }
-                    Require(rejected, "in-place reparse mutation detected");
+                    pathRejected = false; try { identity.EnsureActive(); } catch (InvalidOperationException) { pathRejected = true; }
+                    Require(pathRejected, "in-place reparse mutation detected");
                 }
                 else { identity.EnsureActive(); Console.WriteLine("OS denied scratch in-place reparse mutation while guarded."); }
             }
-            foreach (string mode in new[] { "ok", "unsafe", "stale", "cancel" })
+            foreach (string mode in new[] { "ok", "unsafe", "stale", "cancel", "duplicate", "conflict", "late", "duplicate_cancel" })
             {
                 using var guard = WindowsProjectGuard.Open(scratch);
                 var owner = new ApprovalSession("fixture task", guard.Project, "workspace-write; network-disabled", () => DateTimeOffset.UtcNow, TimeSpan.FromMinutes(2));
@@ -142,16 +142,18 @@ static class NativeApprovalTests
                 using var provider = new CodexProcessChannel(info);
                 var native = new NativeCodexTurn(owner, guard, provider, profile);
                 using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-                bool asked = false;
+                bool asked = false; int promptCount = 0;
                 try
                 {
-                    var result = native.RunAsync(_ => { asked = true; if (mode == "cancel") cancel.Cancel(); return true; }, cancel.Token).GetAwaiter().GetResult();
+                    var result = native.RunAsync(_ => { asked = true; promptCount++; if (mode == "cancel" || mode == "duplicate_cancel") cancel.Cancel(); return true; }, cancel.Token).GetAwaiter().GetResult();
                     if (mode == "ok") Require(asked && result.Status == "completed", "native provider approval");
                     if (mode == "stale") Require(!asked && result.Status == "approval denied", "stale provider turn denied");
-                    if (mode == "cancel") Require(asked && result.Status.StartsWith("stopped"), "cancel during native prompt");
-                    if (mode == "unsafe") throw new Exception("Unsafe provider config accepted");
+                    if (mode == "cancel" || mode == "duplicate_cancel") Require(asked && promptCount == 1 && result.Status.StartsWith("stopped"), "cancel during native prompt");
+                    if (mode == "late") Require(!asked && result.Status == "completed", "late request not prompted");
+                    if (mode == "unsafe" || mode == "duplicate" || mode == "conflict") throw new Exception("Unsafe provider input accepted");
                 }
                 catch (InvalidDataException) when (mode == "unsafe") { Require(!asked, "unsafe provider not prompted"); }
+                catch (InvalidDataException) when (mode == "duplicate" || mode == "conflict") { Require(promptCount == 1, "duplicate provider request not reprompted"); }
             }
         }
         finally { Directory.Delete(scratch, true); }
@@ -195,6 +197,28 @@ static class NativeApprovalTests
                 if (cause == "revoke") authority.Revoke(); else grantTicks += 30_001;
                 System.Threading.Thread.Sleep(1800); // child would have drained by now
                 Require(!File.Exists(marker), "queued grant blocked after " + cause);
+            }
+            finally { provider.Dispose(); if (File.Exists(marker)) File.Delete(marker); }
+        }
+        // Deterministically revoke after the writer's initial authority check
+        // but before it links/checks the token and starts the actual write.
+        {
+            string marker = Path.Combine(root, "atlas-boundary-marker-" + Guid.NewGuid().ToString("N"));
+            var authority = new ApprovalSession("fixture task", project, "workspace-write; network-disabled", () => DateTimeOffset.UtcNow, TimeSpan.FromMinutes(2));
+            var info = new System.Diagnostics.ProcessStartInfo(Path.GetFullPath(args[0])) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true };
+            info.ArgumentList.Add(Path.GetFullPath(args[2]));
+            info.Environment["ATLAS_FIXTURE_PROFILE"] = "atlas_" + Guid.NewGuid().ToString("N");
+            info.Environment["ATLAS_FIXTURE_PROJECT"] = project;
+            info.Environment["ATLAS_FIXTURE_MODE"] = "delayed_read";
+            info.Environment["ATLAS_FIXTURE_MARKER"] = marker;
+            using var reached = new ManualResetEventSlim(false);
+            using var provider = new CodexProcessChannel(info, () => { authority.Revoke(); reached.Set(); });
+            try
+            {
+                Require(authority.CommitIfActive(CancellationToken.None, () => provider.Send(new { id = "fixture", result = new { decision = "accept" } }, CancellationToken.None, authority.RevocationToken, authority.AuthorityRemaining)), "boundary fixture grant queued");
+                Require(reached.Wait(TimeSpan.FromSeconds(3)), "pre-write revocation fixture reached");
+                System.Threading.Thread.Sleep(1800);
+                Require(!File.Exists(marker), "revocation between check and write blocked grant");
             }
             finally { provider.Dispose(); if (File.Exists(marker)) File.Delete(marker); }
         }

@@ -1,4 +1,7 @@
-// Development-only transport, deliberately not connected to app startup.
+// Legacy worker-supplied-request experiment. PROHIBITED for production or
+// provider grants: request provenance is not independently correlated and
+// cancellation during a prompt can race the synchronous response. Deliberately
+// not connected to app startup. Do not enable or use as an approval authority.
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Text;

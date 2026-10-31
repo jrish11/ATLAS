@@ -50,4 +50,11 @@ for line in sys.stdin:
         raise SystemExit('unexpected request')
     send({'id': message['id'], 'result': replies[method]})
     if method == 'turn/start':
-        send({'id': 'approval', 'method': 'item/fileChange/requestApproval', 'params': {'threadId': 'thread', 'turnId': 'stale' if mode == 'stale' else 'turn'}})
+        request = {'id': 'approval', 'method': 'item/fileChange/requestApproval', 'params': {'threadId': 'thread', 'turnId': 'stale' if mode == 'stale' else 'turn'}}
+        if mode == 'late':
+            send({'method': 'turn/completed', 'params': {'threadId': 'thread', 'turn': {'id': 'turn', 'status': 'completed'}}})
+        send(request)
+        if mode in ('duplicate', 'conflict', 'duplicate_cancel'):
+            if mode == 'conflict':
+                request = {**request, 'params': {**request['params'], 'changed': 'conflicting payload'}}
+            send(request)

@@ -10,16 +10,18 @@ internal sealed class CodexProcessChannel : IDisposable
 {
     private const int MaxLine = 1_048_576;
     private static readonly TimeSpan WriteDeadline = TimeSpan.FromSeconds(2);
-    private sealed record Outbound(byte[] Bytes, CancellationToken Cancellation, CancellationTokenRegistration Registration, CancellationTokenRegistration RevocationRegistration, Func<TimeSpan> AuthorityRemaining);
+    private sealed record Outbound(byte[] Bytes, CancellationToken Cancellation, CancellationToken Revocation, CancellationTokenRegistration Registration, CancellationTokenRegistration RevocationRegistration, Func<TimeSpan> AuthorityRemaining);
     private readonly Process process;
+    private readonly Action beforeGrantWriteForTest;
     private readonly Channel<JsonElement> queue = Channel.CreateBounded<JsonElement>(new BoundedChannelOptions(256) { SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait });
     private readonly Channel<Outbound> outgoing = Channel.CreateBounded<Outbound>(new BoundedChannelOptions(8) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
     private readonly CancellationTokenSource stop = new();
     private int aborted;
 
-    internal CodexProcessChannel(ProcessStartInfo info)
+    internal CodexProcessChannel(ProcessStartInfo info, Action beforeGrantWriteForTest = null)
     {
         if (info.UseShellExecute || !info.RedirectStandardInput || !info.RedirectStandardOutput || !Path.IsPathFullyQualified(info.FileName)) throw new InvalidOperationException("Invalid provider process configuration.");
+        this.beforeGrantWriteForTest = beforeGrantWriteForTest;
         process = Process.Start(info) ?? throw new InvalidOperationException("Provider could not start.");
         _ = Task.Run(ReadLoop);
         _ = Task.Run(WriteLoop);
@@ -55,7 +57,7 @@ internal sealed class CodexProcessChannel : IDisposable
         if (bytes.Length > MaxLine) throw new InvalidDataException("Provider frame too long.");
         var registration = cancellation.Register(() => ThreadPool.QueueUserWorkItem(_ => Abort()));
         var revokedRegistration = revocation.Register(() => ThreadPool.QueueUserWorkItem(_ => Abort()));
-        if (cancellation.IsCancellationRequested || revocation.IsCancellationRequested || Volatile.Read(ref aborted) != 0 || !outgoing.Writer.TryWrite(new Outbound(bytes, cancellation, registration, revokedRegistration, authorityRemaining)))
+        if (cancellation.IsCancellationRequested || revocation.IsCancellationRequested || Volatile.Read(ref aborted) != 0 || !outgoing.Writer.TryWrite(new Outbound(bytes, cancellation, revocation, registration, revokedRegistration, authorityRemaining)))
         {
             registration.Dispose(); revokedRegistration.Dispose();
             ThreadPool.QueueUserWorkItem(_ => Abort());
@@ -75,8 +77,13 @@ internal sealed class CodexProcessChannel : IDisposable
                     // when a grant was queued. Revocation tears down pending I/O.
                     TimeSpan authority = item.AuthorityRemaining?.Invoke() ?? WriteDeadline;
                     if (authority <= TimeSpan.Zero) throw new OperationCanceledException();
-                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop.Token, item.Cancellation);
+                    if (item.AuthorityRemaining != null) beforeGrantWriteForTest?.Invoke();
+                    item.Revocation.ThrowIfCancellationRequested();
+                    item.Cancellation.ThrowIfCancellationRequested();
+                    if (item.AuthorityRemaining != null && item.AuthorityRemaining() <= TimeSpan.Zero) throw new OperationCanceledException();
+                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop.Token, item.Cancellation, item.Revocation);
                     deadline.CancelAfter(authority < WriteDeadline ? authority : WriteDeadline);
+                    deadline.Token.ThrowIfCancellationRequested();
                     // WaitAsync bounds our wait even if an OS stream ignores its
                     // token; Abort closes the process/pipe without a send lock.
                     await process.StandardInput.BaseStream.WriteAsync(item.Bytes.AsMemory(), deadline.Token).AsTask().WaitAsync(deadline.Token);

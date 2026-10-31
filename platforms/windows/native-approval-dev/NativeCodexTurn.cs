@@ -23,6 +23,7 @@ internal sealed class NativeCodexTurn
     private long sequence;
     private string threadId, turnId;
     private bool approvalDenied;
+    private readonly Dictionary<string, string> providerRequests = new(StringComparer.Ordinal);
 
     internal NativeCodexTurn(ApprovalSession nativeOwnerApproved, WindowsProjectGuard lockedProject, CodexProcessChannel nativeProviderChannel, string requestedProfile, Func<ulong> elapsed = null)
     {
@@ -232,8 +233,23 @@ internal sealed class NativeCodexTurn
         if (item.TryGetProperty("method", out var method) && item.TryGetProperty("id", out var id))
         {
             if (method.ValueKind != JsonValueKind.String || id.ValueKind is not (JsonValueKind.String or JsonValueKind.Number)) throw new InvalidDataException("Invalid provider request.");
+            // Provider RPC identity, not a fresh UI nonce, determines whether
+            // this request has already been seen. Never repeat a prompt or a
+            // grant for an identical or conflicting reuse of an ID.
+            string rpcId;
+            if (id.ValueKind == JsonValueKind.String && id.GetString() is { Length: > 0 and <= 256 } textId) rpcId = "s:" + textId;
+            else if (id.ValueKind == JsonValueKind.Number && id.TryGetInt64(out long numberId)) rpcId = "n:" + numberId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            else throw new InvalidDataException("Invalid provider request identity.");
             string payload = item.GetRawText();
-            var request = new ApprovalRequest(session.Id, Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant(), session.Task, session.Project, session.Scope, payload, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant());
+            string digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
+            if (providerRequests.TryGetValue(rpcId, out string previous))
+            {
+                session.Revoke();
+                throw new InvalidDataException(previous == digest ? "Duplicate provider request." : "Conflicting provider request identity.");
+            }
+            if (providerRequests.Count >= 128) { session.Revoke(); throw new InvalidDataException("Too many provider requests."); }
+            providerRequests.Add(rpcId, digest);
+            var request = new ApprovalRequest(session.Id, Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant(), session.Task, session.Project, session.Scope, payload, digest);
             var decision = session.Decide(request, nativePrompt);
             if (decision.Decision != "accept") approvalDenied = true;
             project.EnsureActive();
