@@ -15,6 +15,7 @@ jobs:
         working-directory: platforms/windows
     env:
       PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - name: Check out reviewed source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -94,7 +95,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $native = Start-Process -FilePath (Join-Path $relocated 'Atticus.exe') -ArgumentList '--selftest' -Wait -PassThru
           if ($native.ExitCode -ne 0) { throw 'Relocated native self-test failed.' }
-          python -c "import hashlib,json,pathlib; r=pathlib.Path(r'$relocated'); m=json.loads((r/'MANIFEST.json').read_text()); assert all(hashlib.sha256((r/p).read_bytes()).hexdigest()==h for p,h in m.items()); assert not (r/'runtime').exists(); assert not (r/'atticus.json').exists()"
+          python -c "import hashlib,json,pathlib; r=pathlib.Path(r'$relocated'); m=json.loads((r/'MANIFEST.json').read_text()); assert {p.relative_to(r).as_posix() for p in r.rglob('*') if p.is_file()} == set(m)|{'MANIFEST.json'}; assert all(hashlib.sha256((r/p).read_bytes()).hexdigest()==h for p,h in m.items()); assert not (r/'runtime').exists(); assert not (r/'atticus.json').exists()"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Compress-Archive -Path $relocated -DestinationPath "$env:RUNNER_TEMP/ATLAS-Windows-x64-Experimental-Setup-Required.zip"
       - name: Retain successful assembled candidate for review
