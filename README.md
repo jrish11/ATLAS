@@ -53,7 +53,7 @@ For v3.6: 139 focused synthetic regression tests and 17 packaging tests passed. 
 
 ## Repository security and contributor history
 
-[Security policy and private reporting](SECURITY.md) describes safe reporting. Private vulnerability reporting and Dependabot alerts are enabled. CodeQL default setup has been configured for initial validation on standard runners; a successful completed scan and full-language coverage are not yet claimed. Secret scanning/push protection remain enabled; automatic dependency fixes remain disabled.
+[Security policy and private reporting](SECURITY.md) describes safe reporting. Private vulnerability reporting and Dependabot alerts are enabled. CodeQL initial validation completed successfully for Python, JavaScript/TypeScript and C# on standard runners ([run](https://github.com/jrish11/ATLAS/actions/runs/41232314897), source e1962a6). Swift coverage and full security assurance are not claimed. Secret scanning/push protection remain enabled; automatic dependency fixes remain disabled.
 
 The GitHub Compare & pull request banners are development-branch notices. Claude/Cursor contributor avatars originate in the retained upstream history; new ATLAS exports have no coauthor trailers. See [maintainer/tooling and provenance](docs/ATTRIBUTION.md).
 
