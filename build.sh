@@ -14,7 +14,8 @@ command -v claude >/dev/null || [ -x ~/.local/bin/claude ] || echo "Note: Claude
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 # A compiler error must leave the installed app and its resources alone.
-swiftc -O -target "$(uname -m)-apple-macos26.0" Atticus.swift -o "$STAGE/Atticus"
+cp Atticus.swift "$STAGE/main.swift"
+swiftc -O -target "$(uname -m)-apple-macos26.0" "$STAGE/main.swift" RemoteNativeOwner.swift NativeCompanionTransport.swift NativeCompanionOwner.swift CompanionLoopbackListener.swift companion/Shared/*.swift -o "$STAGE/Atticus"
 APP=~/Applications/Atticus.app   # in Applications so System Settings can list it for permissions
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/ui"
 cp atticus.py "$APP/Contents/Resources/"

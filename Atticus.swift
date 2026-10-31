@@ -17,6 +17,7 @@ import EventKit
 import CoreAudio
 import AudioToolbox
 import NaturalLanguage
+import Security
 
 // A development bundle must never read or write the regular Atticus profile.
 if Bundle.main.bundleIdentifier == "com.atticus.personal.dev" {
@@ -4358,6 +4359,16 @@ final class PointerView: NSView {
 
 final class AgentPanels: NSObject, WKScriptMessageHandler {
     var process: Process?, input: FileHandle?, output: Pipe?, buffer = Data(), restarts = 0
+    // Only created for the explicitly selected development experiment.
+    var remoteEndpoint: Int32 = -1
+    var remoteOwner: RemoteNativeOwner?
+    private let supervisorWriteLock=NSLock(),companionEvents=CompanionEventRouter()
+    var companionTransport: NativeCompanionTransport?
+    var companionOwner: NativeCompanionOwner?, companionListener: CompanionLoopbackListener?
+    var companionCloseObserver: NSObjectProtocol?
+    var companionExpiry: Timer?
+    var remoteInvitationLink: String?
+    private var remoteAuthority: String?
     var shelf: ShelfPanel?, shelfWeb: WKWebView?, view: KeyPanel?, viewWeb: WKWebView?
     var startingLabel: NSTextField?, startingStep: NSTextField?
     let mini = MiniScreen()
@@ -4384,7 +4395,10 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
         localKeys = NSEvent.addLocalMonitorForEvents(matching:.keyDown) { [weak self] e in if Int(e.keyCode) == kVK_Escape { self?.js("shelf","blur") }; return e }
         if !devTextOnly { timer = Timer.scheduledTimer(withTimeInterval:0.1, repeats:true) { [weak self] _ in self?.tick() } }
         NotificationCenter.default.addObserver(forName:NSApplication.willTerminateNotification, object:nil, queue:.main) { [weak self] _ in
-            self?.process?.terminationHandler = nil; self?.process?.terminate(); self?.mini.reset()
+            guard let self else{return}
+            self.companionListener?.stop();self.companionListener=nil
+            if let owner=self.companionOwner {let done=DispatchSemaphore(value:0);owner.stop {done.signal()};_ = done.wait(timeout:.now()+2)}
+            self.process?.terminationHandler = nil; self.process?.terminate(); self.mini.reset()
         }
         NotificationCenter.default.addObserver(forName:NSApplication.didChangeScreenParametersNotification, object:nil, queue:.main) { [weak self] _ in
             guard let self else { return }
@@ -4414,12 +4428,14 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
     func send(_ data:[String:Any]) {
         start()
         guard let json = try? JSONSerialization.data(withJSONObject:data) else { return }
+        supervisorWriteLock.lock();defer{supervisorWriteLock.unlock()}
         do { try input?.write(contentsOf:json + Data([10])) }
         catch { process?.terminate() }
     }
     func sendCodexStart(_ data:[String:Any]) -> Bool {
         start()
         guard let process,process.isRunning,let input,let json=try? JSONSerialization.data(withJSONObject:data) else {return false}
+        supervisorWriteLock.lock();defer{supervisorWriteLock.unlock()}
         do {try input.write(contentsOf:json+Data([10]));return true}
         catch {process.terminate();return false}
     }
@@ -4429,6 +4445,7 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
         let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         guard let data = try? JSONSerialization.data(withJSONObject: ["action":"personal-open", "id":id, "text":text, "confirmed":true]) else { return false }
         personalPending[id] = completion
+        supervisorWriteLock.lock();defer{supervisorWriteLock.unlock()}
         do { try input.write(contentsOf:data + Data([10])) }
         catch { personalPending.removeValue(forKey:id)?(nil); process.terminate(); return true }
         DispatchQueue.main.asyncAfter(deadline:.now() + 12) { [weak self] in self?.personalPending.removeValue(forKey:id)?(nil) }
@@ -4436,16 +4453,32 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
     }
     func start() {
         guard process == nil else { return }
-        let p = py(["--agents"], ["ATTICUS_UI":"1"]), out = Pipe(), inp = Pipe(); p.standardOutput = out; p.standardInput = inp; p.standardError = FileHandle.nullDevice
+        let experimental = Bundle.main.bundleIdentifier == "com.atticus.personal.dev" && (CommandLine.arguments.contains("--experimental-remote") || CommandLine.arguments.contains("--experimental-companion"))
+        let p = py([experimental ? "--agents-remote-experimental" : "--agents"], ["ATTICUS_UI":"1"]), out = Pipe(), inp = Pipe(); p.standardOutput = out; p.standardInput = inp; p.standardError = FileHandle.nullDevice
+        var childRemote: FileHandle?
+        if experimental {
+            var bytes=[UInt8](repeating:0,count:32)
+            guard bytes.withUnsafeMutableBytes({ SecRandomCopyBytes(kSecRandomDefault,$0.count,$0.baseAddress!) }) == errSecSuccess else { return }
+            remoteAuthority=bytes.map { String(format:"%02x",$0) }.joined()
+            var pair: [Int32] = [-1,-1]
+            guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { remoteAuthority=nil;return }
+            _ = fcntl(pair[0], F_SETFD, FD_CLOEXEC); _ = fcntl(pair[1], F_SETFD, FD_CLOEXEC)
+            _ = fcntl(pair[0], F_SETNOSIGPIPE, 1)
+            remoteEndpoint = pair[0]; childRemote = FileHandle(fileDescriptor:pair[1],closeOnDealloc:true); p.standardError = childRemote
+        }
         fcntl(inp.fileHandleForWriting.fileDescriptor,F_SETNOSIGPIPE,1)
         process = p; input = inp.fileHandleForWriting; output = out
+        let supervisorOutputQueue=DispatchQueue(label:"atlas.agents.output"),eventRouter=companionEvents
+        var outputBuffer=Data()
         out.fileHandleForReading.readabilityHandler = { [weak self] file in
-            let data = file.availableData
-            DispatchQueue.main.async {
-                guard let self, self.process === p else { return }; self.buffer += data
-                while let newline = self.buffer.firstIndex(of:10) {
-                    let data = Data(self.buffer[..<newline]); self.buffer.removeSubrange(...newline)
-                    if let event = try? JSONSerialization.jsonObject(with:data) as? [String:Any] { self.receive(event) }
+            let data=file.availableData
+            supervisorOutputQueue.async {
+                outputBuffer += data
+                while let newline=outputBuffer.firstIndex(of:10) {
+                    let line=Data(outputBuffer[..<newline]);outputBuffer.removeSubrange(...newline)
+                    guard let event=try? JSONSerialization.jsonObject(with:line) as? [String:Any] else {continue}
+                    if event["event"] as? String == "remote-companion-result" {eventRouter.deliver(event);continue}
+                    DispatchQueue.main.async {guard let self,self.process === p else{return};self.receive(event)}
                 }
             }
         }
@@ -4453,6 +4486,11 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
             out.fileHandleForReading.readabilityHandler = nil
             DispatchQueue.main.async { [weak self] in
                 guard let self, process === p else { return }
+                companionListener?.stop();companionListener=nil;companionOwner?.stop();companionOwner=nil
+                companionEvents.set(nil);companionTransport?.close();companionTransport=nil
+                remoteOwner?.stop(); remoteOwner = nil
+                remoteAuthority=nil; remoteInvitationLink=nil
+                if remoteEndpoint >= 0 { close(remoteEndpoint); remoteEndpoint = -1 }
                 if p.terminationReason == .uncaughtSignal || (p.terminationStatus != 0 && p.terminationStatus != 70) { telemetry(["error", "worker_exit", "python", String(p.terminationStatus)]) }
                 // A crash drops its half-read line and box state; a fresh supervisor relists its saved rows.
                 process = nil; input = nil; buffer = Data(); lastBox = nil; restarts += 1
@@ -4460,14 +4498,136 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
                 DispatchQueue.main.asyncAfter(deadline:.now() + min(60, pow(2, Double(restarts)))) { [weak self] in self?.start() }
             }
         }
-        do { try p.run() }
+        do {
+            try p.run(); try? childRemote?.close()
+            if experimental, let key=remoteAuthority {
+                let data=try JSONSerialization.data(withJSONObject:["kind":"native-authority","key":key]);let n=data.count
+                var frame=Data([UInt8((n>>24)&255),UInt8((n>>16)&255),UInt8((n>>8)&255),UInt8(n&255)]);frame.append(data)
+                try FileHandle(fileDescriptor:remoteEndpoint,closeOnDealloc:false).write(contentsOf:frame)
+            }
+        }
         catch {
+            if p.isRunning { p.terminate() };remoteAuthority=nil
+            try? childRemote?.close(); if remoteEndpoint >= 0 { close(remoteEndpoint); remoteEndpoint = -1 }
             process = nil; input = nil; restarts += 1
             DispatchQueue.main.asyncAfter(deadline:.now() + min(60, pow(2, Double(restarts)))) { [weak self] in self?.start() }
             return
         }
         send(["action":"list"])
     }
+    private func sendRemote(_ data:[String:Any]) -> Bool {
+        guard let key=remoteAuthority, let process,process.isRunning,let input else { return false }
+        var authenticated=data;authenticated["nativeAuthority"]=key
+        guard let payload=try? JSONSerialization.data(withJSONObject:authenticated) else { return false }
+        supervisorWriteLock.lock();defer{supervisorWriteLock.unlock()}
+        do { try input.write(contentsOf:payload+Data([10]));return true } catch { process.terminate();return false }
+    }
+    // Private-only entry point: the caller is a native owner coordinator, never
+    // WebKit. This only binds the supervisor; it starts no listener or identity.
+    func attachCompanionSupervisor(scope: RemoteNativeOwner.Scope, activation: RemoteNativeOwner.Activation, window: NSWindow) -> NativeCompanionTransport? {
+        guard remoteOwner == nil,companionTransport == nil,remoteEndpoint >= 0,let process,process.isRunning,let input,let authority=remoteAuthority else {return nil}
+        let owner=RemoteNativeOwner(scope:scope,clock:steadyTime,window:window,activation:activation,requiresDevice:true)
+        do {try owner.attach(fd:remoteEndpoint)} catch {return nil}
+        remoteEndpoint = -1;remoteOwner=owner
+        let writeLock=supervisorWriteLock
+        let bridge=NativeCompanionTransport(send:{message in
+            var authenticated=message;authenticated["nativeAuthority"]=authority
+            guard let data=try? JSONSerialization.data(withJSONObject:authenticated) else{return false}
+            writeLock.lock();defer{writeLock.unlock()}
+            do {try input.write(contentsOf:data+Data([10]));return true} catch {return false}
+        },stop:{[weak self] in
+            let stopNow = {guard let self else {return};self.remoteOwner?.stop();self.remoteOwner=nil;_ = self.sendRemote(["action":"remote-stop"])}
+            if Thread.isMainThread {stopNow()} else {DispatchQueue.main.async(execute:stopNow)}
+        })
+        companionTransport=bridge;companionEvents.set(bridge)
+        let command:[String:Any] = ["action":"remote-companion-enable","folder":scope.folder,"identity":["device":scope.device,"inode":scope.inode],"scope":["id":scope.id,"revision":scope.revision],"origin":activation.origin,"token":activation.token,"csrf":activation.csrf,"expires":scope.expires,"invitation":activation.invitation]
+        guard sendRemote(command) else {companionEvents.set(nil);bridge.close();companionTransport=nil;return nil}
+        return bridge
+    }
+    func stopExperimentalCompanion() {
+        companionExpiry?.invalidate();companionExpiry=nil
+        if let observer=companionCloseObserver {NotificationCenter.default.removeObserver(observer);companionCloseObserver=nil}
+        companionListener?.stop();companionListener=nil
+        if let owner=companionOwner {companionOwner=nil;owner.stop();return}
+        finishCompanionStop()
+    }
+    private func finishCompanionStop() {
+        companionExpiry?.invalidate();companionExpiry=nil
+        if let observer=companionCloseObserver {NotificationCenter.default.removeObserver(observer);companionCloseObserver=nil}
+        companionListener?.stop();companionListener=nil;companionOwner=nil
+        companionEvents.set(nil);companionTransport?.close();companionTransport=nil
+    }
+    func configureExperimentalCompanion() {
+        guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev",CommandLine.arguments.contains("--experimental-companion") else {return}
+        openView();guard let window=view,remoteEndpoint>=0,remoteOwner==nil,companionOwner==nil else {return}
+        let picker=NSOpenPanel();picker.canChooseFiles=false;picker.canChooseDirectories=true;picker.allowsMultipleSelection=false;picker.message="Choose the project for this companion session."
+        guard picker.runModal() == .OK,let selected=picker.url,let canonical=realpath(selected.path,nil) else{return}
+        let folder=String(cString:canonical);free(canonical)
+        guard let attrs=try? FileManager.default.attributesOfItem(atPath:folder),let dev=attrs[.systemNumber] as? NSNumber,let ino=attrs[.systemFileNumber] as? NSNumber,attrs[.type] as? FileAttributeType == .typeDirectory else{return}
+        let ask=NSAlert();ask.messageText="Private companion HTTPS origin";ask.informativeText="Enter the exact private HTTPS origin you control. ATLAS does not configure the route, VPN, certificate, proxy, or firewall."
+        let field=NSTextField(string:"");field.placeholderString="https://atlas.example";field.frame=NSRect(x:0,y:0,width:380,height:24);ask.accessoryView=field;ask.addButton(withTitle:"Continue");ask.addButton(withTitle:"Cancel")
+        guard ask.runModal() == .alertFirstButtonReturn else{return};let origin=field.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
+        guard origin.range(of:#"^https://[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?$"#,options:.regularExpression) != nil,let parts=URLComponents(string:origin),parts.host != nil,parts.port.map({(1...65535).contains($0)}) ?? true else{return}
+        let disclosure=NSAlert();disclosure.messageText="Start experimental companion?";disclosure.informativeText="Project: \(folder)\nPrivate origin: \(origin)\nSession: 10 minutes, including sleep\n\nThis creates a Mac identity and pairing records in this Mac’s Keychain and opens a loopback-only listener. It does not establish the private HTTPS route. A paired phone can request tasks for this project and see their status; every task requires approval on this Mac. Stop cannot undo an action already dispatched."
+        disclosure.addButton(withTitle:"Start companion");disclosure.addButton(withTitle:"Cancel");guard disclosure.runModal() == .alertFirstButtonReturn else{return}
+        func secret()->String? {var bytes=[UInt8](repeating:0,count:32);guard bytes.withUnsafeMutableBytes({SecRandomCopyBytes(kSecRandomDefault,$0.count,$0.baseAddress!)}) == errSecSuccess else{return nil};return bytes.map{String(format:"%02x",$0)}.joined()}
+        guard let token=secret(),let csrf=secret(),let invitation=secret(),let scopeID=secret(),let revision=secret() else{return}
+        let scope=RemoteNativeOwner.Scope(folder:folder,id:scopeID,revision:revision,device:dev.intValue,inode:ino.intValue,expires:steadyTime()+600),activation=RemoteNativeOwner.Activation(origin:origin,token:token,csrf:csrf,invitation:invitation)
+        guard let bridge=attachCompanionSupervisor(scope:scope,activation:activation,window:window) else{return}
+        do {
+            guard let nativeOwner=remoteOwner else {throw DeviceError.denied}
+            let owner=try NativeCompanionOwner(window:window,nativeOwner:nativeOwner,scope:scope,origin:origin,identityStore:DeviceKeychain(service:"com.atticus.dev.companion.identity"),vaultStore:DeviceKeychain(service:"com.atticus.dev.companion.vault"),journalStore:DeviceKeychain(service:"com.atticus.dev.companion.journal"),bridge:bridge,clock:steadyTime,ownerConfigured:true,onStopping:{[weak self] in
+                let stopListener={self?.companionListener?.stop();self?.companionListener=nil}
+                if Thread.isMainThread {stopListener()} else {DispatchQueue.main.async(execute:stopListener)}
+            },onStop:{[weak self] in DispatchQueue.main.async {self?.finishCompanionStop()}})
+            let listener=try CompanionLoopbackListener(handler:owner.handler,ownerActivated:true);companionOwner=owner;companionListener=listener
+            companionExpiry=Timer.scheduledTimer(withTimeInterval:0.25,repeats:true) {[weak self] _ in if steadyTime()>=scope.expires {self?.stopExperimentalCompanion()}}
+            companionCloseObserver=NotificationCenter.default.addObserver(forName:NSWindow.willCloseNotification,object:window,queue:.main) {[weak self] _ in self?.stopExperimentalCompanion()}
+            let info=NSAlert();info.messageText="Companion listener started locally";info.informativeText="Listening only at 127.0.0.1:\(listener.port). A separately configured private HTTPS route is required before a phone can connect.";info.addButton(withTitle:"Continue");info.runModal();owner.begin()
+        } catch {stopExperimentalCompanion();let alert=NSAlert();alert.messageText="Companion unavailable";alert.informativeText="Review the previous task and pairing state before trying again.";alert.runModal()}
+    }
+    // Called only after native owner configuration and disclosure.
+    func attachExperimentalRemote(scope: RemoteNativeOwner.Scope, origin: String, token: String, csrf: String, invitation: String) -> Bool {
+        guard remoteOwner == nil, remoteEndpoint >= 0, let process, process.isRunning, let window = view else { return false }
+        let approved=RemoteNativeOwner.Activation(origin:origin,token:token,csrf:csrf,invitation:invitation)
+        let owner = RemoteNativeOwner(scope:scope,clock:steadyTime,window:window,activation:approved)
+        do { try owner.attach(fd:remoteEndpoint) } catch { return false }
+        remoteEndpoint = -1; remoteOwner = owner
+        let command: [String:Any] = ["action":"remote-enable","folder":scope.folder,"identity":["device":scope.device,"inode":scope.inode],"scope":["id":scope.id,"revision":scope.revision],"origin":origin,"token":token,"csrf":csrf,"expires":scope.expires,"invitation":invitation]
+        if sendRemote(command) { return true }
+        owner.stop();remoteOwner=nil;return false
+    }
+    func configureExperimentalRemote() {
+        guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev", CommandLine.arguments.contains("--experimental-remote") else { return }
+        openView()
+        guard remoteEndpoint >= 0, remoteOwner == nil else { let alert=NSAlert();alert.messageText="Restart ATLAS to begin another remote session";alert.informativeText="Review any previous task first. Each launch permits only one remote session.";alert.runModal();return }
+        let picker=NSOpenPanel();picker.canChooseFiles=false;picker.canChooseDirectories=true;picker.allowsMultipleSelection=false;picker.message="Choose the project for this remote session."
+        guard picker.runModal() == .OK, let selected=picker.url else { return }
+        let folder=selected.resolvingSymlinksInPath().standardizedFileURL.path
+        guard let attrs=try? FileManager.default.attributesOfItem(atPath:folder), let dev=attrs[.systemNumber] as? NSNumber, let ino=attrs[.systemFileNumber] as? NSNumber, attrs[.type] as? FileAttributeType == .typeDirectory else { return }
+        let prompt=NSAlert();prompt.messageText="Private HTTPS origin";prompt.informativeText="Enter the exact HTTPS origin of a private route you control. ATLAS will not set up a network route, VPN, proxy, or firewall."
+        let field=NSTextField(string:"");field.placeholderString="https://atlas.example";field.frame=NSRect(x:0,y:0,width:380,height:24);prompt.accessoryView=field;prompt.addButton(withTitle:"Continue");prompt.addButton(withTitle:"Cancel")
+        guard prompt.runModal() == .alertFirstButtonReturn else { return }
+        let origin=field.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
+        guard origin.range(of:#"^https://[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?$"#,options:.regularExpression) != nil, let parts=URLComponents(string:origin), parts.host != nil, parts.port.map({(1...65535).contains($0)}) ?? true else { return }
+        let disclosure=NSAlert();disclosure.messageText="Enable experimental remote session?";disclosure.informativeText="Project: \(folder)\nOrigin: \(origin)\nExpiry: 10 minutes, including sleep\n\nA phone must request pairing and be approved on this Mac. Each task requires a separate approval here. Stop cannot undo an action already dispatched. The listener is loopback-only; no private route is configured by ATLAS."
+        disclosure.addButton(withTitle:"Enable for 10 minutes");disclosure.addButton(withTitle:"Cancel")
+        guard disclosure.runModal() == .alertFirstButtonReturn else { return }
+        func secret() -> String? {
+            var bytes=[UInt8](repeating:0,count:32)
+            let status=bytes.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault,$0.count,$0.baseAddress!) }
+            return status == errSecSuccess ? bytes.map { String(format:"%02x",$0) }.joined() : nil
+        }
+        guard let token=secret(),let csrf=secret(),let invitation=secret(),let scopeID=secret(),let revision=secret() else { return }
+        let scope=RemoteNativeOwner.Scope(folder:folder,id:scopeID,revision:revision,device:dev.intValue,inode:ino.intValue,expires:steadyTime()+600)
+        remoteInvitationLink=origin+"/#"+invitation
+        if !attachExperimentalRemote(scope:scope,origin:origin,token:token,csrf:csrf,invitation:invitation) { remoteInvitationLink=nil }
+    }
+    func stopExperimentalRemote() {
+        remoteOwner?.stop();remoteOwner=nil;remoteInvitationLink=nil
+        _ = sendRemote(["action":"remote-stop"])
+    }
+    func reviewExperimentalRemote() { start();_ = sendRemote(["action":"remote-review"]) }
     func prepare(_ brief:[String:Any], from:[Double]? = nil) {
         var brief = brief
         if (brief["steer"] as? String).flatMap({ rows[$0] }) == nil { moveFrom[brief["handoffId"] as? String ?? ""] = from ?? [] }   // words to a live agent get no offer
@@ -4502,6 +4662,23 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
     }
     func receive(_ event:[String:Any]) {
         let kind = event["event"] as? String ?? ""
+        if kind == "remote-companion-result" {companionTransport?.receive(event);return}
+        if kind == "remote-companion-ready" {return}
+        if kind == "remote-ready", let port = event["port"] as? Int, let link = remoteInvitationLink {
+            let alert=NSAlert();alert.messageText="Remote session ready for pairing";alert.informativeText="The service listens only on this Mac at 127.0.0.1:\(port). No network access has been configured. A separate private HTTPS route must already exist. Open this one-use link on the intended phone; the Mac will ask you to approve that device."
+            let field=NSTextField(string:link);field.isEditable=false;field.isSelectable=true;field.frame=NSRect(x:0,y:0,width:500,height:24);alert.accessoryView=field;alert.addButton(withTitle:"OK");alert.runModal();return
+        }
+        if kind == "remote-error" { stopExperimentalCompanion();remoteOwner?.stop();remoteOwner=nil;remoteInvitationLink=nil;let alert=NSAlert();alert.messageText="Remote session unavailable";alert.informativeText=event["text"] as? String ?? "Review the prior task before trying again.";alert.runModal();return }
+        if kind == "remote-review" {
+            let alert=NSAlert()
+            guard event["pending"] as? Bool == true, let challenge=event["challenge"] as? String else { alert.messageText="No remote task needs review";alert.runModal();return }
+            let receipt=event["receipt"] as? [String:Any]
+            alert.messageText="Review the previous remote task"
+            alert.informativeText="Request: \(event["requestId"] as? String ?? "")\nProject: \(receipt?["folder"] as? String ?? "No matching receipt")\nTask: \(receipt?["brief"] as? String ?? "Unknown")\nStatus: \(receipt?["status"] as? String ?? "Unknown")\n\nInspect the project and Agents history first. An absent receipt does not prove that nothing happened. Clear the barrier only after you have resolved the outcome."
+            alert.addButton(withTitle:"I inspected it; clear barrier");alert.addButton(withTitle:"Cancel")
+            if alert.runModal() == .alertFirstButtonReturn { _ = sendRemote(["action":"remote-review-clear","challenge":challenge]) };return
+        }
+        if kind == "remote-review-error" || kind == "remote-review-cleared" { let alert=NSAlert();alert.messageText=kind == "remote-review-cleared" ? "Remote review recorded" : "Remote review unavailable";alert.informativeText=event["text"] as? String ?? "The barrier was cleared. Restart ATLAS before starting another session.";alert.runModal();return }
         if kind == "codex-start-error",let message=event["error"] as? String {
             js("view","codexStartError",["id":event["requestId"] as? String ?? "", "error":message])
             app.js("msg",message);return
@@ -4899,8 +5076,22 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
             };return true
     }
 
+    @discardableResult func startClaudeRequest(_ body:[String:Any]) -> Bool {
+        func rejected() -> Bool { if let id=body["requestId"] as? String {js("view","codexStartCancelled",id)};return false }
+        guard body["confirmed"] as? Bool == true, body["folder"] as? String == "", let task=body["task"] as? String,
+              !task.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,task.count<=4000,
+              !task.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+              let requestID=body["requestId"] as? String, UUID(uuidString:requestID) != nil else {return rejected()}
+        let alert=NSAlert();alert.messageText="Start this Claude Code task?"
+        alert.informativeText="Task: "+task+"\n\nClaude Code uses its own existing account and a private ATLAS scratch workspace. It may request approval for other actions. Codex and the foreground OpenAI key are separate."
+        alert.addButton(withTitle:"Start Claude Code task");alert.addButton(withTitle:"Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else {return rejected()}
+        guard sendCodexStart(body) else {return rejected()};return true
+    }
+
     func userContentController(_ controller:WKUserContentController,didReceive message:WKScriptMessage) {
         guard let body = message.body as? [String:Any], let action = body["action"] as? String else { return }
+        guard webAgentActionAllowed(action) else { return }
         let surface = message.webView === viewWeb ? "view" : "shelf", id = body["id"] as? String ?? ""
         switch action {
         case "ready":
@@ -4960,6 +5151,9 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
         case "codex-start":
             guard surface == "view" else {return}
             startCodexRequest(body,fromUI:true)
+        case "claude-start":
+            guard surface == "view" else {return}
+            startClaudeRequest(body)
         case "answer":
             if rows[id]?["provider"] as? String == "codex", body["answer"] as? String == "y" {
                 guard let q=rows[id]?["question"] as? [String:Any],let token=q["_a"] as? String,token==body["question"] as? String, let details=q["cmd"] as? String else {return}
@@ -5831,6 +6025,14 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
         add(m, "Ask ATLAS", #selector(ask), "", "waveform")
         add(m, agentsUI.count > 0 ? "Agents · \(agentsUI.count) running…" : "Agents…", #selector(openAgents), "", "person.2")
+        if Bundle.main.bundleIdentifier == "com.atticus.personal.dev" && CommandLine.arguments.contains("--experimental-companion") {
+            add(m, agentsUI.companionOwner == nil ? "Phone Pairing…" : "Stop Phone Access", #selector(toggleExperimentalCompanion), "", "iphone")
+            add(m, "Review Remote Outcome…", #selector(reviewExperimentalRemote), "", "checkmark.shield")
+        }
+        if Bundle.main.bundleIdentifier == "com.atticus.personal.dev" && CommandLine.arguments.contains("--experimental-remote") {
+            add(m, agentsUI.remoteOwner == nil ? "Experimental Remote…" : "Stop Experimental Remote", #selector(toggleExperimentalRemote), "", "iphone")
+            add(m, "Review Remote Outcome…", #selector(reviewExperimentalRemote), "", "checkmark.shield")
+        }
         if agentsUI.hasLive || agentsUI.lingering { add(m, Prefs.bool("agentsHidden") ? "Show Agent Shelf" : "Hide Agent Shelf", #selector(hideAgents), "", Prefs.bool("agentsHidden") ? "eye" : "eye.slash") }
         add(m, "Dictation History…", #selector(dictationHistory), "", "clock.arrow.circlepath")
         if pasteHotkeyRegistered && (app.lastDictation ?? DictationData.archive.history.first?.text) != nil {
@@ -5878,6 +6080,9 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc func dictationHistory() { settings.open(tab: "dictation") }
     @objc func pasteDictation() { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { app.pasteLastDictation() } }   // after the menu closes and focus returns
     @objc func openAgents() { agentsUI.openView() }
+    @objc func toggleExperimentalCompanion() {if agentsUI.companionOwner == nil {agentsUI.configureExperimentalCompanion()} else {agentsUI.stopExperimentalCompanion()}}
+    @objc func toggleExperimentalRemote() { if agentsUI.remoteOwner == nil { agentsUI.configureExperimentalRemote() } else { agentsUI.stopExperimentalRemote() } }
+    @objc func reviewExperimentalRemote() { agentsUI.reviewExperimentalRemote() }
     @objc func hideAgents() { Prefs.set("agentsHidden",!Prefs.bool("agentsHidden")) }
     @objc func openSetup() { onboarding.open() }
     @objc func reportFeedback() { settings.open(tab:"feedback") }
@@ -6115,7 +6320,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         send("dictation", DictationData.state())
         send("whisper", Whisper.shared.status())
         js("st.motion(\(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion))")
-        var d: [String: Any] = ["devRuntimeSetup": Bundle.main.bundleIdentifier == "com.atticus.personal.dev", "manualUpdates": Updater.manualUpdates, "prefs": Prefs.d, "mics": microphoneChoices(), "version": Updater.version, "update": Updater.status, "managedUpdates": Updater.managedByNix, "sharingUnavailable": ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27,
+        var d: [String: Any] = ["devRuntimeSetup": Bundle.main.bundleIdentifier == "com.atticus.personal.dev", "manualUpdates": Updater.manualUpdates, "upstreamVersion": Bundle.main.object(forInfoDictionaryKey:"AtticusUpstreamVersion") as? String ?? "Unknown", "prefs": Prefs.d, "mics": microphoneChoices(), "version": Updater.version, "update": Updater.status, "managedUpdates": Updater.managedByNix, "sharingUnavailable": ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27,
                                 "hotkeyTaken": !hotkeyRegistered, "dictateHotkeyTaken": !Prefs.str("dictateHotkeyLabel").isEmpty && !dictateHotkeyRegistered, "globeTaken": globeKeyTaken()]
         let routines = (Prefs.path as NSString).deletingLastPathComponent + "/routines.json"
         d["foregroundContextActive"] = app.currentForegroundContextConsent() != nil

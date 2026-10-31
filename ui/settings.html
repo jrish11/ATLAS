@@ -1179,7 +1179,7 @@
       hotkeyTaken = !!d.hotkeyTaken; dictateHotkeyTaken = !!d.dictateHotkeyTaken; if ($('schint').className !== 'warn') $('schint').className = hotkeyTaken ? 'taken' : '';
       if (d.icon) $('icon').src = $('bigicon').src = d.icon;
       contextActive = d.foregroundContextActive === true;
-      $('ver').textContent = $('aboutver').textContent = d.version ? (d.manualUpdates ? 'ATLAS v3.6 · Version ' : 'Version ') + d.version : 'ATLAS';
+      $('ver').textContent = $('aboutver').textContent = d.manualUpdates ? 'ATLAS 1.1 · First Light · Atticus ' + (d.upstreamVersion || 'Unknown') : d.version ? 'Version ' + d.version : 'ATLAS';
       $('autoUpdateRow').hidden = $('checkUpdate').hidden = !!(d.managedUpdates || d.manualUpdates);
       $('sharingUnavailable').hidden = !d.sharingUnavailable;
       $('updateTitle').textContent = d.manualUpdates ? 'Manual updates' : d.managedUpdates ? 'Updates are managed by Nix' : 'Check for updates';

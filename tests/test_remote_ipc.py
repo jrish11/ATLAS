@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock,patch
 import approval_channel,atticus
 from remote_gate import NotDispatched,RemoteGate,RemoteError,DispatchToken
-from remote_ipc import NativeRegistryBridge,serve_one
+from remote_ipc import NativeRegistryBridge,NativeApprovalChannel,serve_one
 
 ID='12345678123441238123123456789abc'
 class FakeProvider:
@@ -27,6 +27,14 @@ class RemotePrivateIPCTests(unittest.TestCase):
   st=self.project.stat();self.scope={'id':'fixture','revision':'revision-1'};self.identity={'device':st.st_dev,'inode':st.st_ino};self.now=[10.]
   self.confirm=Mock(return_value=True)
   self.bridge=NativeRegistryBridge(self.manager,scope=self.scope,folder=str(self.project),identity=self.identity,expires=20,verify_scope=atticus.codex_project_matches,owner_confirm=self.confirm,clock=lambda:self.now[0])
+ def test_private_owner_channel_drives_actual_registry_dispatch(self):
+  a,b=socket.socketpair();self.addCleanup(a.close)
+  channel=NativeApprovalChannel(b,scope=self.scope,identity=self.identity,expires=20,clock=lambda:self.now[0]);self.addCleanup(channel.close)
+  self.bridge.owner_confirm=channel;answer=[]
+  t=threading.Thread(target=lambda:answer.append(self.bridge.submit(ID,'synthetic task',self.scope,DispatchToken(),20)),daemon=True);t.start()
+  owner=approval_channel.Owner(a);target=owner.receive();self.assertEqual(target['task'],'synthetic task');self.assertEqual(target['identity'],self.identity)
+  self.assertFalse(self.manager.rows);owner.respond(True);t.join(2)
+  self.assertEqual(answer,['submitted']);self.assertEqual(self.bridge.status(ID),'running')
  def test_private_socket_dispatches_once_and_persists_registry_receipt(self):
   a,b=socket.socketpair();self.addCleanup(a.close);self.addCleanup(b.close)
   worker=threading.Thread(target=serve_one,args=(a,self.bridge,DispatchToken()),daemon=True);worker.start()
@@ -64,6 +72,22 @@ class RemotePrivateIPCTests(unittest.TestCase):
   result=gate.request(**auth,body={'id':ID,'task':'synthetic task'})
   self.assertEqual(result['status'],'unknown');self.assertEqual(len(restored.rows),1);self.assertEqual(len(FakeProvider.instances),1);confirm.assert_not_called()
   with self.assertRaises(RemoteError):gate.request(**auth,body={'id':'22345678123441238123123456789abc','task':'another'})
+ def test_restart_can_inspect_and_stop_only_the_matching_durable_receipt(self):
+  self.bridge.submit(ID,'synthetic task',self.scope,DispatchToken(),20)
+  restarted=NativeRegistryBridge(self.manager,scope=self.scope,folder=str(self.project),identity=self.identity,expires=20,verify_scope=atticus.codex_project_matches,owner_confirm=self.confirm,clock=lambda:self.now[0])
+  self.assertEqual(restarted.status(ID),'running')
+  wrong=NativeRegistryBridge(self.manager,scope=self.scope,folder=str(self.project),identity={'device':self.identity['device'],'inode':self.identity['inode']+1},expires=20,verify_scope=atticus.codex_project_matches,owner_confirm=self.confirm,clock=lambda:self.now[0])
+  self.assertEqual(wrong.status(ID),'unknown');wrong.cancel(ID)
+  self.assertFalse(FakeProvider.instances[0].interrupted.is_set())
+  restarted.cancel(ID);self.assertTrue(FakeProvider.instances[0].interrupted.wait(1))
+ def test_ambiguous_duplicate_receipts_fail_closed(self):
+  self.bridge.submit(ID,'synthetic task',self.scope,DispatchToken(),20)
+  with self.manager.lock:
+   row=next(iter(self.manager.rows.values()));duplicate=dict(row,id='another')
+   self.manager.rows['another']=duplicate
+  self.assertEqual(self.bridge.status(ID),'unknown');self.bridge.cancel(ID)
+  self.assertFalse(FakeProvider.instances[0].interrupted.is_set())
+  with self.manager.lock:self.manager.rows.pop('another')
  def test_stop_after_commit_returns_immediately_and_delivers_one_cancel(self):
   entered=threading.Event();release=threading.Event();stopped=threading.Event()
   class BlockingRegistry:
@@ -71,7 +95,7 @@ class RemotePrivateIPCTests(unittest.TestCase):
    def command(self,data):
     if data['action']=='codex-start':
      entered.set();release.wait(2)
-     with self.lock:self.rows['row']={'id':'row','codexClientRequest':data['requestId'],'folder':data['folder'],'brief':data['task'],'codexProjectIdentity':data['folderIdentity'],'status':'running'}
+     with self.lock:self.rows['row']={'id':'row','provider':'codex','codexClientRequest':data['requestId'],'folder':data['folder'],'brief':data['task'],'codexProjectIdentity':data['folderIdentity'],'status':'running'}
     elif data['action']=='stop':self.stop_count+=1;stopped.set()
   manager=BlockingRegistry();bridge=NativeRegistryBridge(manager,scope=self.scope,folder=str(self.project),identity=self.identity,expires=20,verify_scope=atticus.codex_project_matches,owner_confirm=lambda *_:True,clock=lambda:self.now[0])
   gate=RemoteGate(clock=lambda:self.now[0]);auth={'host':'fixture.example','origin':'https://fixture.example','token':'t'*32,'csrf':'c'*32}

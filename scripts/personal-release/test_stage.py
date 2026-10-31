@@ -11,6 +11,8 @@ class ReleaseStageTests(unittest.TestCase):
     modules=[alias.name.split('.')[0] for alias in node.names] if isinstance(node,ast.Import) else [node.module.split('.')[0]] if isinstance(node,ast.ImportFrom) and node.module else []
     for module in modules:
      if (ROOT/(module+'.py')).is_file():self.assertIn(module+'.py',allowed,name+' has an unstaged local import')
+ def test_disabled_companion_modules_are_in_release_allowlist(self):
+  self.assertTrue({'remote_barrier.py','remote_gate.py','remote_ipc.py','remote_loopback.py','remote_service.py','companion_registry.py'} <= set(stage.PYTHON_RESOURCES))
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory(prefix='atticus-release-fixture-');self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
   self.app=self.root/'input.app';c=self.app/'Contents';r=c/'Resources';m=c/'MacOS';r.mkdir(parents=True);m.mkdir()

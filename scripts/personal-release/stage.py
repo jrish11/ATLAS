@@ -4,7 +4,7 @@ import argparse, hashlib, json, os, plistlib, shutil, stat, subprocess, tempfile
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
-PYTHON_RESOURCES=('atticus.py','personal_commands.py','memory_destinations.py','memory_inspector.py','memory_transactions.py','memory_rules_store.py','memory_corrections.py','memory_workflows.py','memory_seed.py','folder_grants.py','foreground_openai.py','foreground_control.py','foreground_smoke.py','approval_channel.py','autonomy_policy.py','codex_provider.py','vault_journal.py','keychain_store.py')
+PYTHON_RESOURCES=('atticus.py','personal_commands.py','memory_destinations.py','memory_inspector.py','memory_transactions.py','memory_rules_store.py','memory_corrections.py','memory_workflows.py','memory_seed.py','folder_grants.py','foreground_openai.py','foreground_control.py','foreground_smoke.py','approval_channel.py','remote_barrier.py','remote_gate.py','remote_ipc.py','remote_loopback.py','remote_service.py','companion_registry.py','autonomy_policy.py','codex_provider.py','vault_journal.py','keychain_store.py')
 SKIP={'examples','example','tests','test','__tests__','fixtures','.git','__pycache__','docs','doc'}
 SENSITIVE={'auth.json','settings.json','credentials.json','api_key.json','apikey.json','token.json','tokens.json','session.json','keychain.json','.env','.npmrc','.netrc','.ds_store'}
 def bundle_filename(info):

@@ -1,3 +1,5 @@
+> DEVELOPMENT RC2 / INTERNAL BUILD3: frozen combined sourcec8de0c2.162 focused checks passed with2 guarded native WebKit skips;40 packaging checks passed. Phone interoperation, explicit activation and live owner checks remain unverified; no production readiness or website promotion is claimed. See [private-test candidate limits](docs/releases/ATLAS-1.1-First-Light-RC2-Build3.md). The public primary download remains v3.6.
+
 # ATLAS
 
 A customized fork of [Atticus for macOS](https://github.com/SaarthurR/atticus-mac), retaining its compact floating interface, menu bar, voice/typed interaction and existing architecture. ATLAS is not the unrelated earlier prototype bearing the same name.

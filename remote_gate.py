@@ -1,7 +1,7 @@
 """In-memory remote request gate; inert until a trusted native bridge is integrated.
 
-This module opens no socket and creates no credential. Owner activation, pairing
-transport and the real supervisor bridge are intentionally not wired here.
+This module opens no socket and creates no credential. The experimental native
+supervisor provides activation and the bridge only after owner confirmation.
 """
 import hashlib
 import hmac
@@ -24,15 +24,19 @@ class NotDispatched(Exception):
 
 class DispatchToken:
     """Linearizes Stop against the decision to commit one dispatch."""
-    def __init__(self):
+    def __init__(self, deadline=None, wall_expiry=None, clock=None):
         self._lock=threading.Lock();self._cancelled=False;self._committed=False
+        self.deadline=deadline;self.wall_expiry=wall_expiry;self._clock=clock or approval_channel.shared_clock
+    def _expired(self):
+        return ((self.deadline is not None and self._clock()>=self.deadline) or
+                (self.wall_expiry is not None and time.time()>=self.wall_expiry))
     def set(self):
         with self._lock:self._cancelled=True
     def is_set(self):
-        with self._lock:return self._cancelled
+        with self._lock:return self._cancelled or self._expired()
     def try_commit(self):
         with self._lock:
-            if self._cancelled or self._committed:return False
+            if self._cancelled or self._committed or self._expired():return False
             self._committed=True;return True
 
 def valid_origin(origin):
@@ -47,7 +51,8 @@ def valid_origin(origin):
 
 class RemoteGate:
     """Owner-supplied session and scope; no web request can enable or change either."""
-    def __init__(self, clock=None):
+    def __init__(self, clock=None, barrier=None):
+        self._barrier=barrier
         self._clock=clock or approval_channel.shared_clock;self._lock=threading.RLock();self._session=None
         self._active=None;self._requests={};self._generation=0;self._used_tokens=set();self._unresolved={}
 
@@ -63,6 +68,10 @@ class RemoteGate:
         with self._lock:
             if self._session is not None or self._active is not None: raise RemoteError('Revoke the existing session first.')
             if self._unresolved: raise RemoteError('Review the previous task outcome before pairing again.')
+            if self._barrier is not None:
+                try: pending=self._barrier.read()
+                except Exception as exc: raise RemoteError('Task barrier unavailable; review required.') from exc
+                if pending is not None: raise RemoteError('Review the previous task outcome before pairing again.')
             if digest in self._used_tokens: raise RemoteError('A fresh pairing token is required.')
             self._used_tokens.add(digest)
             self._generation+=1
@@ -80,19 +89,24 @@ class RemoteGate:
         return (self._session is session and self._active==ident and
                 self._requests.get(ident) is row and row['generation']==session['generation'])
 
-    def request(self, *, host, origin, token, csrf, body):
+    def request(self, *, host, origin, token, csrf, body, deadline=None, wall_expiry=None):
         with self._lock:
             if not self._authorized(host,origin,token,csrf): raise RemoteError('Unauthorized or expired session.')
             if not isinstance(body,dict) or set(body)!={'id','task'}: raise RemoteError('Invalid request.')
             ident,task=body['id'],body['task']
             if not isinstance(ident,str) or not _ID.fullmatch(ident) or not isinstance(task,str) or not task.strip() or len(task)>MAX_TASK or '\x00' in task: raise RemoteError('Invalid request.')
-            task=task.strip();previous=self._requests.get(ident)
+            previous=self._requests.get(ident)
             if previous:
                 if previous['task']!=task: raise RemoteError('Request ID conflict.')
                 return {'id':ident,'status':previous['status']}
             if self._active or self._unresolved: raise RemoteError('A task is active or needs review.')
             if len(self._requests)>=1000: raise RemoteError('Session task limit reached.')
-            session=self._session;cancelled=DispatchToken()
+            session=self._session
+            if deadline is not None or wall_expiry is not None:
+                if (type(deadline) not in (int,float) or not math.isfinite(deadline) or
+                    type(wall_expiry) is not int or not self._clock()<deadline<=min(session['expires'],self._clock()+30) or
+                    not time.time()<wall_expiry<=time.time()+30): raise RemoteError('Request expired.')
+            cancelled=DispatchToken(deadline=deadline,wall_expiry=wall_expiry,clock=self._clock)
             row={'task':task,'status':'validating','generation':session['generation'],'cancelled':cancelled,'inflight':False}
             self._requests[ident]=row;self._active=ident
         try: scope_ok=session['bridge'].valid_scope(dict(session['scope'])) is True
@@ -104,16 +118,37 @@ class RemoteGate:
                 self._active=None;row['status']='cancelled';return {'id':ident,'status':'cancelled'}
             if not scope_ok:
                 self._active=None;row['status']='failed';return {'id':ident,'status':'failed'}
-            row['status']='dispatching';row['inflight']=True
+            row['status']='reserving';row['inflight']=True
+        if self._barrier is not None:
+            try: self._barrier.reserve(ident,dict(session['scope']))
+            except Exception:
+                with self._lock:
+                    row['inflight']=False;row['status']='unknown';self._unresolved[(row['generation'],ident)]=row
+                return {'id':ident,'status':'unknown'}
+        with self._lock:
+            if not self._current(ident,row,session) or cancelled.is_set() or not self._authorized(host,origin,token,csrf):
+                row['inflight']=False
+                try:
+                    if self._barrier is not None:self._barrier.clear(ident)
+                    row['status']='cancelled'
+                    if self._current(ident,row,session):self._active=None
+                except Exception:
+                    row['status']='unknown';self._unresolved[(row['generation'],ident)]=row
+                return {'id':ident,'status':row['status']}
+            row['status']='dispatching'
         # A trusted bridge MUST check cancellation, the continuous-clock deadline
         # and project revision at its own final dispatch boundary.
         try: outcome=session['bridge'].submit(ident,task,dict(session['scope']),cancelled,session['expires'])
         except NotDispatched:
             with self._lock:
-                row['inflight']=False;row['status']='cancelled'
-                self._unresolved.pop((row['generation'],ident),None)
-                if self._current(ident,row,session):self._active=None
-                return {'id':ident,'status':'cancelled'}
+                row['inflight']=False
+                try:
+                    if self._barrier is not None:self._barrier.clear(ident)
+                    row['status']='cancelled';self._unresolved.pop((row['generation'],ident),None)
+                    if self._current(ident,row,session):self._active=None
+                except Exception:
+                    row['status']='unknown';self._unresolved[(row['generation'],ident)]=row
+                return {'id':ident,'status':row['status']}
         except Exception:
             with self._lock:
                 row['inflight']=False
@@ -136,6 +171,11 @@ class RemoteGate:
                 if not row or row['generation']!=generation or self._active!=ident: return False
             if status=='unknown':
                 row['status']='unknown';self._unresolved[key]=row;return True
+            if row['inflight']: return False
+            try:
+                if self._barrier is not None:self._barrier.clear(ident)
+            except Exception:
+                row['status']='unknown';self._unresolved[key]=row;return False
             row['status']=status;self._unresolved.pop(key,None)
             if self._requests.get(ident) is row and self._active==ident:self._active=None
             return True
@@ -146,6 +186,9 @@ class RemoteGate:
         with self._lock:
             key=(generation,ident);row=self._unresolved.get(key)
             if row is None or row['inflight']: raise RemoteError('Task outcome is still pending.')
+            if self._barrier is not None:
+                try:self._barrier.clear(ident)
+                except Exception as exc:raise RemoteError('Task barrier unavailable; review required.') from exc
             row['status']=outcome;self._unresolved.pop(key)
             if self._requests.get(ident) is row and self._active==ident:self._active=None
 
@@ -154,7 +197,19 @@ class RemoteGate:
             if not self._authorized(host,origin,token,csrf): raise RemoteError('Unauthorized or expired session.')
             row=self._requests.get(ident)
             if not row: raise RemoteError('Unknown task.')
-            return {'id':ident,'status':row['status']}
+            session=self._session; state=row['status']
+        if state in ('submitted','cancelling') and callable(getattr(session['bridge'],'status',None)):
+            try: observed=session['bridge'].status(ident)
+            except Exception: observed='unknown'
+            if observed in ('queued','running','needs-owner','completed-unverified','failed','stopped','cancelling','review-required','unknown'):
+                state=observed
+        with self._lock:
+            if not self._authorized(host,origin,token,csrf) or self._session is not session or self._requests.get(ident) is not row:
+                raise RemoteError('Unauthorized or expired session.')
+            # A concurrent Stop or uncertain dispatch supersedes an old observation.
+            if row['status'] not in ('submitted','cancelling'): state=row['status']
+            elif row['status']=='cancelling' and state not in ('stopped','review-required','unknown'): state='cancelling'
+            return {'id':ident,'status':state}
 
     def _cancel_in_background(self, session, ident, row):
         def cancel():

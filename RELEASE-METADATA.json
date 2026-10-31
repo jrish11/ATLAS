@@ -28,5 +28,22 @@
     "current_public_previews_retained": true,
     "final_source_commit": null,
     "final_artifact": null
+  },
+  "candidate": {
+    "display_version": "1.1",
+    "name": "First Light",
+    "channel": "rc.2",
+    "build": 3,
+    "update_epoch": 1,
+    "source": "c8de0c2d1f7a0b257d987dc98c6c829d7961e7a0",
+    "production_ready": false,
+    "phone_ready": false,
+    "activation_performed": false,
+    "website_primary_changed": false,
+    "sanitized_draft_artifact": {
+      "name": "ATLAS-1.1-First-Light-RC2-Build3-SANITIZED-DRAFT.zip",
+      "bytes": 2441537,
+      "sha256": "79648d553cb2152a8330f085e6b64cdd1111c6ca5e73f71b2962d2964aa3f974"
+    }
   }
 }

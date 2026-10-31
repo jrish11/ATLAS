@@ -1,53 +1,33 @@
-> Historical development note. This may describe an earlier build. See the root README, CHANGELOG and RELEASES for current status.
-
 # ATLAS Remote development boundary
 
-This is an inactive protocol foundation, not a phone connection. Nothing opens a
-listener, configures Tailscale, creates credentials, or starts a task. Do not
-package or enable it until a native-owned authenticated bridge, pairing flow,
-transport and independent review are complete.
+The isolated development candidate contains an experimental remote session. It
+is off by default and is available only to the development app launched with
+`--experimental-remote`. The native owner selects a project and HTTPS origin,
+reviews a ten-minute disclosure, and separately approves phone pairing and each
+task. Credentials and a one-use invitation are created only after the initial
+approval, remain in memory, and are revoked when the private channel closes.
+The native app also sends a fresh control capability over that channel; remote
+supervisor commands require it, and activation must independently match the
+exact configuration held by the native owner. WebKit cannot send remote
+control commands. A phone keeps one immutable active task ID for the session.
+The HTTP service binds only to IPv4 loopback; ATLAS does not configure a route,
+VPN, proxy, firewall, or public endpoint. The phone page uses text or keyboard
+dictation, review before Send, progress, and Stop.
 
-A future owner-controlled enable action must disclose the exact selected project,
-the HTTPS origin, device and session expiry. The native app must hold the
-credentials and scope, generate unpredictable one-use pairing material only
-after confirmation, and own revocation. A mobile client must never be able to
-select a project, approve a sensitive action, invoke shell/JSON-RPC, or create
-a session. Scope identity and normal local approvals must be rechecked by the
-existing dispatcher. A stop cannot undo a command already dispatched.
+The existing Agents registry remains the only task dispatcher. The selected
+project identity and expiry are checked again at dispatch. A persistent barrier
+blocks another session when an in-flight result is uncertain. Native owner
+review can clear it only after dispatch settles and the owner inspects the
+receipt and project; absence of a receipt does not prove that nothing happened.
+Stop cannot undo an already dispatched action. The ordinary app-server transport
+remains local stdio, and remote requests cannot select a project, export
+credentials, or invoke raw shell.
 
-Potential transport: Tailscale Serve to a loopback-only HTTP service. Serve must
-be explicitly configured by the owner; public Funnel is out of scope. Host and
-Origin checks are not authentication, and forwarded identity headers cannot be
-trusted unless the verified transport provides a trustworthy boundary.
-See https://tailscale.com/docs/features/tailscale-serve and
-https://learn.chatgpt.com/docs/app-server.
-
-Unresolved: authenticated native-to-gateway authority, identity binding through
-the proxy, pairing and credential delivery, iOS browser session security, secure
-status/cancellation bridging, and post-restart revocation. The gate is not
-wired to Codex or a listener. No claim of same-user malicious process isolation.
-
-The prototype now binds asynchronous callbacks to the exact in-memory session
-and task. A submission whose acknowledgement is lost remains `unknown` and
-blocks re-pairing until an owner-reviewed or authoritative terminal outcome is
-recorded. This barrier is in memory only: a durable supervisor receipt and a
-trusted native review channel are still required before any activation.
-
-`remote_ipc.py` is an isolated adapter experiment. Synthetic socket-pair tests
-exercise its fixed message shape against the existing Agents registry, using a
-fake provider and an injected owner-confirmation callback. Existing task
-receipts prevent redispatch across a synthetic supervisor restart; a prior
-receipt is reported as unknown until reviewed. The adapter is not connected to
-a native process, an HTTP endpoint, pairing, or an actual phone. Its callback
-is not proof of owner consent until a native-owned private channel supplies it.
-The native channel must also retain final dispatch/revocation guarantees and
-independent review before enabling the feature.
-
-The synthetic bridge now linearizes cancellation against a dispatch commit and
-uses the existing Agents request receipt in tests. Stop returns immediately;
-if dispatch has already committed, the bridge requests cancellation as soon as
-its registry receipt exists. This cannot undo an action already committed.
-The in-memory unknown-outcome barrier is not a durable reconciliation system.
-The real native owner-confirmation callback, inherited descriptor ownership,
-listener, pairing, and status/event transport are still absent; do not enable
-or present this preview as functional remote control.
+Synthetic tests cover native private-channel approval, a fake Codex provider,
+loopback transport, registry status and Stop, scope changes, expiry, replay,
+rotation, denial, and uncertain outcomes. They are not a live phone validation
+or an independent security review. Do not enable a real session, create a real
+invitation, pair a device, or configure a route until independent review and
+explicit owner approval for each action. No public endpoint, network setting,
+credential, device, OS permission, installation, or upload was configured by
+this development work. Same-user malicious-process isolation is not claimed.
