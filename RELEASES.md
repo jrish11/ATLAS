@@ -16,7 +16,7 @@ The machine-readable inventory in `docs/releases/source-versions.json` records e
 
 The historical v3.5 Mac binary has a separately verified public-safe artifact: `ATLAS-v3.5-macOS-arm64-PUBLIC.zip`, 2,123,762 bytes, SHA-256 `43af1cdb16b4a9fb251b2041cdf9b5238a223446a56e43dbc9376fbf0bb24d8b`. Earlier delivered binaries contain a private optional companion and MUST NOT be uploaded as public release assets. Rebuilding or separately sanitizing an older binary requires validation; none is claimed here.
 
-Windows source-only and remote development snapshots are separate experimental tracks, not v3.5 release assets. The phone/PWA frontend is not ready. Repository: https://github.com/jrish11/ATLAS . Source tags and archive links are listed in the machine-readable inventory. A public GitHub network fork cannot be private; a private derived repository is a different arrangement.
+Windows restricted/native development and remote snapshots are separate experimental tracks, not Mac release assets. Windows AI dispatch remains disabled and no Windows binary is released. Phone activation is pending; a frontend freeze is not a deployed service. Repository: https://github.com/jrish11/ATLAS . Source tags and archive links are listed in the machine-readable inventory. A public GitHub network fork cannot be private; a private derived repository is a different arrangement.
 
 ## Public Mac artifact
 
@@ -25,3 +25,7 @@ Windows source-only and remote development snapshots are separate experimental t
 ## v3.6 experimental Mac update
 
 Source `ef7dfe5f92ba7a5e1d8ad824c1fa9772765f8d04`. Source tag and public-safe ZIP are published and GitHub-verified; the private optional profile is excluded. Download: https://github.com/jrish11/ATLAS/releases/download/v3.6/ATLAS-v3.6-macOS-arm64-PUBLIC.zip . ZIP bytes2,127,724; SHA256 `2c1335d796fd53880dbb8dbcc57733493b39e952dd5b9626fcc2ab0adf5d259e`. This is a limited test preview, not notarized or live native UI validation.
+
+## First Light draft checkpoint
+
+`v1.1-rc.1` and `v1.1-rc.2` remain GitHub draft prereleases, not stable releases. The latest reviewed draft is RC2 build 3, source `c8de0c2d1f7a0b257d987dc98c6c829d7961e7a0`, export `13b3c59f9a1abb9d402f78e6ca76c75f98110ba6`. Its sanitized draft ZIP is 2,441,537 bytes, SHA256 `79648d553cb2152a8330f085e6b64cdd1111c6ca5e73f71b2962d2964aa3f974`. Private companions remain excluded. See the [current checkpoint](docs/PROJECT-CHECKPOINT-2026-10-31.md) for exact evidence and gates. No public download was promoted by this documentation update.
