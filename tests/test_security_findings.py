@@ -1,5 +1,6 @@
 """Synthetic regressions for reviewed CodeQL findings."""
 import ast
+import json
 import os
 from pathlib import Path
 import re
@@ -36,6 +37,18 @@ class ScriptFixtureTests(unittest.TestCase):
 
 
 class PrivateTextTests(unittest.TestCase):
+    def test_non_key_preferences_do_not_read_keychain(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prefs = Path(directory) / 'settings.json'
+            values = {'model': 'fixture-model', 'client': 'pi', 'routing': 'instant',
+                      'agentModel': 'fixture-agent', 'agentUserTools': False}
+            prefs.write_text(json.dumps(values))
+            with mock.patch.object(atticus, 'DIR', directory), mock.patch.object(atticus, 'PREFS', str(prefs)), \
+                 mock.patch.dict(os.environ, {'ATTICUS_DEV_KEYCHAIN_HELPER': 'fixture-helper'}), \
+                 mock.patch.object(atticus.keychain_store, 'ProviderKeyStore', side_effect=AssertionError('unexpected keychain access')):
+                for key, value in values.items():
+                    self.assertEqual(atticus.pref(key, None), value)
+
     def test_request_and_meeting_creation_are_private_from_first_write(self):
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(atticus, 'DIR', directory):
             request = Path(directory) / 'ask.request'
