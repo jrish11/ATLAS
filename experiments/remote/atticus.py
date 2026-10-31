@@ -4670,7 +4670,7 @@ def request_file(directory):
 
 def save_request(ask, text):
     path = request_file(ask); os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as f: f.write(text)
+    private_text(path, text)
     atexit.register(lambda: os.path.exists(path) and os.remove(path))
 
 
@@ -8171,8 +8171,7 @@ def meeting_save(data):
     folder = os.path.join(DIR, 'meetings')
     os.makedirs(folder, mode=0o700, exist_ok=True)
     path = os.path.join(folder, datetime.now().strftime('%Y-%m-%d-%H%M%S-%f') + '.txt')
-    with open(path, 'x', encoding='utf-8') as f:
-        os.chmod(path, 0o600)
+    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as f:
         f.write(str(data.get('text', '')))
     return path
 

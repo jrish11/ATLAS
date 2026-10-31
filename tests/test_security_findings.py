@@ -36,6 +36,25 @@ class ScriptFixtureTests(unittest.TestCase):
 
 
 class PrivateTextTests(unittest.TestCase):
+    def test_request_and_meeting_creation_are_private_from_first_write(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(atticus, 'DIR', directory):
+            request = Path(directory) / 'ask.request'
+            request.write_text('old'); request.chmod(0o644)
+            with mock.patch.object(atticus, 'request_file', return_value=str(request)):
+                atticus.save_request(directory, 'synthetic')
+            self.assertEqual(request.read_text(), 'synthetic')
+            self.assertEqual(stat.S_IMODE(request.stat().st_mode), 0o600)
+            original_open = os.open
+            def inspect(path, flags, mode=0o777, **kwargs):
+                fd = original_open(path, flags, mode, **kwargs)
+                if str(path).endswith('.txt'):
+                    self.assertEqual(stat.S_IMODE(os.fstat(fd).st_mode), 0o600)
+                return fd
+            with mock.patch.object(os, 'open', side_effect=inspect):
+                saved = Path(atticus.meeting_save({'save': True, 'text': 'synthetic'}))
+            self.assertEqual(saved.read_text(), 'synthetic')
+            self.assertEqual(stat.S_IMODE(saved.stat().st_mode), 0o600)
+
     def test_atomic_private_replacement_and_failure_cleanup(self):
         functions = []
         for source in (ROOT / 'atticus.py', ROOT / 'experiments/remote/atticus.py'):
