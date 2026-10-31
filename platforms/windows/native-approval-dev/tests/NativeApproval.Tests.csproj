@@ -17,6 +17,8 @@
     <Compile Include="../NativeOwnerBroker.cs" Link="NativeOwnerBroker.cs" />
     <Compile Include="../WindowsProcessJob.cs" Link="WindowsProcessJob.cs" />
     <Compile Include="../ContainedProviderProcess.cs" Link="ContainedProviderProcess.cs" />
+    <Compile Include="../VerifiedCodexPackage.cs" Link="VerifiedCodexPackage.cs" />
+    <Compile Include="../NativeSandboxProbe.cs" Link="NativeSandboxProbe.cs" />
     <Compile Include="NativeApprovalTests.cs" />
   </ItemGroup>
 </Project>

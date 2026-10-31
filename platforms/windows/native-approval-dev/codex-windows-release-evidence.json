@@ -1,7 +1,7 @@
 {
   "release": "rust-v0.166.0",
   "source": "https://github.com/openai/codex/releases/expanded_assets/rust-v0.166.0",
-  "evidence": "SHA-256 values transcribed from the official OpenAI release asset list. No artifacts were downloaded or independently hashed; no claim is made that this list identifies every runtime helper.",
+  "evidence": "Archive downloaded from official OpenAI GitHub release and SHA-256 independently matched the official asset value. Listed members were hashed while streaming the verified archive, without extraction or execution. This does not identify every possible runtime dependency.",
   "assets": {
     "codex-x86_64-pc-windows-msvc.exe": "9d563ee4e0441ff9d59d612013e0460ddf8e5709735c2d9f6b98b7ef8ca4eb42",
     "codex-app-server-x86_64-pc-windows-msvc.exe": "c08bfa333d7bbbeffef2cafe7522600df9cc380d08086ab57e6081ee0c4818f9",
@@ -9,5 +9,24 @@
     "codex-windows-sandbox-setup-x86_64-pc-windows-msvc.exe": "3995c4f57199eb8023a0f3a585f6e9fdc4d5174c22a51837aaeb15beb52954f0",
     "codex-windows-sandbox-service-x86_64-pc-windows-msvc.exe": "6776d62d36cb0b54f636be7b0870488cb86908370b9d25fabb4a8e5be3c1270e",
     "codex-package-x86_64-pc-windows-msvc.tar.gz": "d559bb88e74d471265857b93b7f19bc250dae527673b9191b33534478093f6bc"
-  }
+  },
+  "verified_archive_sha256": "d559bb88e74d471265857b93b7f19bc250dae527673b9191b33534478093f6bc",
+  "package_manifest": {
+    "version": "0.166.0",
+    "target": "x86_64-pc-windows-msvc",
+    "entrypoint": "bin/codex.exe",
+    "execServer": "bin/codex-exec-server.exe",
+    "resourcesDir": "codex-resources",
+    "pathDir": "codex-path"
+  },
+  "verified_archive_members": {
+    "bin/codex.exe": "9d563ee4e0441ff9d59d612013e0460ddf8e5709735c2d9f6b98b7ef8ca4eb42",
+    "bin/codex-code-mode-host.exe": "977c1f01c9efac0bfe1b9032717c95f92e1c965c8441a8dacbfe824c5c79a527",
+    "bin/codex-exec-server.exe": "eda5263b31e0354347e7bcdc434aff82f5c630ddba69f13449742a64e1836a37",
+    "codex-path/rg.exe": "14231169855ec5205cf5a1b6f1db358ff4aed4247c86b69ce8aae647c77f6680",
+    "codex-resources/codex-command-runner.exe": "5e68e3f5b4640af55db2873a0d0dc038907145708f9e735870d9279a8074c2df",
+    "codex-resources/codex-windows-sandbox-setup.exe": "3995c4f57199eb8023a0f3a585f6e9fdc4d5174c22a51837aaeb15beb52954f0",
+    "codex-package.json": "b035b02d5cc8f913648a71b00df181c91a83b99753f5a0302f05e99fb485081f"
+  },
+  "official_installer_source": "https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/scripts/install/install.ps1"
 }

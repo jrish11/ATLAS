@@ -51,7 +51,7 @@ internal sealed class ContainedProviderProcess : IDisposable
         text.Append('\\', slashes * 2); return text.Append('"').ToString();
     }
     private static void Check(bool ok, string operation) { if (!ok) throw new Win32Exception(Marshal.GetLastWin32Error(), operation); }
-    internal static ContainedProviderProcess Start(ProcessStartInfo info, bool failBeforeResumeForTest = false)
+    internal static ContainedProviderProcess Start(ProcessStartInfo info, bool failBeforeResumeForTest = false, bool mergeErrorWithOutput = false)
     {
         if (!OperatingSystem.IsWindows() || info.UseShellExecute || !info.RedirectStandardInput || !info.RedirectStandardOutput || !Path.IsPathFullyQualified(info.FileName) || !string.IsNullOrEmpty(info.Arguments)) throw new InvalidOperationException("Explicit provider launch arguments are required.");
         SafeFileHandle childIn = null, parentIn = null, parentOut = null, childOut = null, childError = null, processHandle = null, threadHandle = null;
@@ -63,8 +63,11 @@ internal sealed class ContainedProviderProcess : IDisposable
             Check(CreatePipe(out childIn, out parentIn, ref security, 0), "Create stdin pipe");
             Check(CreatePipe(out parentOut, out childOut, ref security, 0), "Create stdout pipe");
             Check(SetHandleInformation(parentIn, 1, 0) && SetHandleInformation(parentOut, 1, 0), "Protect parent pipe handles");
-            childError = CreateFileW("NUL", 0x40000000, 3, ref security, 3, 0, IntPtr.Zero);
-            if (childError.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "Open stderr sink");
+            if (!mergeErrorWithOutput)
+            {
+                childError = CreateFileW("NUL", 0x40000000, 3, ref security, 3, 0, IntPtr.Zero);
+                if (childError.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "Open stderr sink");
+            }
             IntPtr size = IntPtr.Zero;
             InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref size);
             if (size == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "Query attribute list size");
@@ -73,9 +76,10 @@ internal sealed class ContainedProviderProcess : IDisposable
             handles = Marshal.AllocHGlobal(IntPtr.Size * 3);
             Marshal.WriteIntPtr(handles, 0, childIn.DangerousGetHandle());
             Marshal.WriteIntPtr(handles, IntPtr.Size, childOut.DangerousGetHandle());
-            Marshal.WriteIntPtr(handles, IntPtr.Size * 2, childError.DangerousGetHandle());
-            Check(UpdateProcThreadAttribute(attr, 0, new IntPtr(0x00020002), handles, new IntPtr(IntPtr.Size * 3), IntPtr.Zero, IntPtr.Zero), "Set explicit handle list");
-            var startup = new StartupInfoEx { Attributes = attr, Startup = new StartupInfo { Size = Marshal.SizeOf<StartupInfoEx>(), Flags = 0x100, Input = childIn.DangerousGetHandle(), Output = childOut.DangerousGetHandle(), Error = childError.DangerousGetHandle() } };
+            if (!mergeErrorWithOutput) Marshal.WriteIntPtr(handles, IntPtr.Size * 2, childError.DangerousGetHandle());
+            int handleCount = mergeErrorWithOutput ? 2 : 3;
+            Check(UpdateProcThreadAttribute(attr, 0, new IntPtr(0x00020002), handles, new IntPtr(IntPtr.Size * handleCount), IntPtr.Zero, IntPtr.Zero), "Set explicit handle list");
+            var startup = new StartupInfoEx { Attributes = attr, Startup = new StartupInfo { Size = Marshal.SizeOf<StartupInfoEx>(), Flags = 0x100, Input = childIn.DangerousGetHandle(), Output = childOut.DangerousGetHandle(), Error = mergeErrorWithOutput ? childOut.DangerousGetHandle() : childError.DangerousGetHandle() } };
             string command = string.Join(" ", new[] { info.FileName }.Concat(info.ArgumentList).Select(Quote));
             if (command.Length >= 32767) throw new InvalidOperationException("Provider command too long.");
             string block = string.Join("\0", info.Environment.Where(p => p.Value != null).OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase).Select(p => p.Key + "=" + p.Value)) + "\0\0";
@@ -87,7 +91,7 @@ internal sealed class ContainedProviderProcess : IDisposable
             process = Process.GetProcessById(checked((int)raw.ProcessId));
             input = new FileStream(parentIn, FileAccess.Write, 4096, false); parentIn = null;
             output = new FileStream(parentOut, FileAccess.Read, 4096, false); parentOut = null;
-            childIn.Dispose(); childIn = null; childOut.Dispose(); childOut = null; childError.Dispose(); childError = null;
+            childIn.Dispose(); childIn = null; childOut.Dispose(); childOut = null; childError?.Dispose(); childError = null;
             if (failBeforeResumeForTest) throw new InvalidOperationException("Fixture stopped before resume.");
             if (ResumeThread(threadHandle) == uint.MaxValue) throw new Win32Exception(Marshal.GetLastWin32Error(), "Resume contained provider");
             var result = new ContainedProviderProcess(process, input, output, job);

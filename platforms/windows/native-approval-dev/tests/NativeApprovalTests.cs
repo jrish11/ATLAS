@@ -72,6 +72,12 @@ static class NativeApprovalTests
 
     static void Main(string[] args)
     {
+        if (args.Length == 3 && args[0] == "--mxc-probe")
+        {
+            NativeSandboxProbe.RunOfficialAsync(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]), CancellationToken.None).GetAwaiter().GetResult();
+            Console.WriteLine("MXC scratch write and loopback denial probes passed; other isolation remains unverified.");
+            return;
+        }
         Require(!NativeOwnerBroker.Enabled, "production broker remains disabled");
         try { NativeOwnerBroker.RunAsync(null, "fixture", "unused", "unused", CancellationToken.None).GetAwaiter().GetResult(); throw new Exception("Disabled broker started"); }
         catch (InvalidOperationException) { }
@@ -142,6 +148,25 @@ static class NativeApprovalTests
                 Require(start.Environment.ContainsKey("SystemRoot") && start.Environment.ContainsKey("USERPROFILE"), "required platform environment");
             }
             finally { foreach (var pair in original) Environment.SetEnvironmentVariable(pair.Key, pair.Value); }
+            string layoutRoot = Path.Combine(scratch, "layout-test");
+            var probeInfo = NativeSandboxProbe.BuildProbeStart(Path.GetFullPath(args[0]), layoutRoot, 32123);
+            string probeTemp = Path.GetFullPath(probeInfo.Environment["TEMP"]), forbidden = Path.GetFullPath(Path.Combine(layoutRoot, "outside"));
+            Require(probeTemp == Path.GetFullPath(Path.Combine(layoutRoot, "runtime-temp")) && probeInfo.Environment["TMP"] == probeTemp, "probe temp isolated from outside target");
+            Require(!forbidden.StartsWith(Path.TrimEndingDirectorySeparator(probeTemp) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase), "outside target is not under temp");
+            Require(probeInfo.ArgumentList.Contains("permissions.atlas_probe.network.enabled=false") && probeInfo.ArgumentList.Contains("windows.sandbox=\"mxc\""), "explicit MXC network-disabled policy");
+            string commandText = File.ReadAllText(Path.Combine(layoutRoot, "project", "fixture.cmd"));
+            Require(commandText.Contains("127.0.0.1", StringComparison.Ordinal) && commandText.Contains("32123", StringComparison.Ordinal) && commandText.Contains("exit 33", StringComparison.Ordinal), "loopback denial fixture distinguishes socket errors");
+            const string officialManifest = "{\r\n  \"layoutVersion\": 1,\r\n  \"version\": \"0.166.0\",\r\n  \"target\": \"x86_64-pc-windows-msvc\",\r\n  \"variant\": \"codex\",\r\n  \"entrypoint\": \"bin/codex.exe\",\r\n  \"execServer\": \"bin/codex-exec-server.exe\",\r\n  \"resourcesDir\": \"codex-resources\",\r\n  \"pathDir\": \"codex-path\"\r\n}\r\n";
+            bool ManifestMatches(string text) => PinnedCodexExecutable.MatchesDigest(new MemoryStream(Encoding.UTF8.GetBytes(text)), VerifiedCodexPackage.ManifestSha256);
+            Require(ManifestMatches(officialManifest), "exact official package manifest accepted");
+            Require(!ManifestMatches(officialManifest.Replace("bin/codex-exec-server.exe", "bin/changed.exe")), "tampered execServer denied");
+            Require(!ManifestMatches(officialManifest.Replace("codex-path", "changed-path")), "tampered pathDir denied");
+            string incompletePackage = Path.Combine(scratch, "incomplete-package"); Directory.CreateDirectory(incompletePackage);
+            File.WriteAllBytes(Path.Combine(incompletePackage, "codex-package.json"), Encoding.UTF8.GetBytes(officialManifest));
+            bool missingRejected = false;
+            try { using var missing = VerifiedCodexPackage.Open(incompletePackage); }
+            catch (IOException) { missingRejected = true; }
+            Require(missingRejected, "incomplete official package rejected");
             string target = Path.Combine(scratch, "target"); string selected = Path.Combine(scratch, "project-long-directory");
             Directory.CreateDirectory(target); Directory.CreateDirectory(selected);
             bool pathRejected = false;
@@ -249,6 +274,40 @@ static class NativeApprovalTests
         }
         catch (Exception ex) { scratchFailure = ex; throw; }
         finally { CleanupWithoutMasking(() => Directory.Delete(scratch, true), scratchFailure); }
+        // Bounded diagnostic capture also uses the contained launcher.
+        {
+            var info = new System.Diagnostics.ProcessStartInfo(Path.GetFullPath(args[0])) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true };
+            info.ArgumentList.Add(Path.GetFullPath(args[2]));
+            info.Environment["ATLAS_FIXTURE_PROFILE"] = "atlas_" + Guid.NewGuid().ToString("N");
+            info.Environment["ATLAS_FIXTURE_PROJECT"] = project; info.Environment["ATLAS_FIXTURE_MODE"] = "argv_echo";
+            string result = NativeSandboxProbe.RunCaptureAsync(info, CancellationToken.None).GetAwaiter().GetResult();
+            Require(result.Contains("arguments", StringComparison.Ordinal), "contained probe capture fake output");
+        }
+        // Only an explicit probe merges stderr; the ordinary provider keeps it private.
+        foreach (bool merged in new[] { false, true })
+        {
+            var info = new System.Diagnostics.ProcessStartInfo(Path.GetFullPath(args[0])) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true };
+            info.ArgumentList.Add(Path.GetFullPath(args[2]));
+            info.Environment["ATLAS_FIXTURE_PROFILE"] = "atlas_" + Guid.NewGuid().ToString("N");
+            info.Environment["ATLAS_FIXTURE_PROJECT"] = project; info.Environment["ATLAS_FIXTURE_MODE"] = "stderr_probe";
+            string output = NativeSandboxProbe.RunCaptureAsync(info, CancellationToken.None, merged).GetAwaiter().GetResult();
+            Require(output.Contains("FAKE_MXC_DIAGNOSTIC", StringComparison.Ordinal) == merged, "probe-only diagnostic merge");
+        }
+        // Credential-free probe runs through the same suspended/job-contained
+        // launcher; this fake does not establish any operating-system sandbox.
+        {
+            string fakeRoot = Path.Combine(root, "atlas-probe-fake-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(fakeRoot);
+            string inside = Path.Combine(fakeRoot, "inside"), outside = Path.Combine(fakeRoot, "outside");
+            try
+            {
+                var info = new System.Diagnostics.ProcessStartInfo(Path.GetFullPath(args[0])) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true };
+                info.ArgumentList.Add(Path.GetFullPath(args[2]));
+                info.Environment["ATLAS_FIXTURE_PROFILE"] = "atlas_" + Guid.NewGuid().ToString("N");
+                info.Environment["ATLAS_FIXTURE_PROJECT"] = fakeRoot; info.Environment["ATLAS_FIXTURE_MODE"] = "sandbox_fake"; info.Environment["ATLAS_FAKE_INSIDE"] = inside;
+                NativeSandboxProbe.VerifyContainedAsync(info, inside, outside, CancellationToken.None).GetAwaiter().GetResult();
+            }
+            finally { Directory.Delete(fakeRoot, true); }
+        }
         // Windows CRT quoting round-trips spaces, quotes and trailing slashes.
         {
             var info = new System.Diagnostics.ProcessStartInfo(Path.GetFullPath(args[0])) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true };

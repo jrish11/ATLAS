@@ -53,7 +53,10 @@ internal static class NativeOwnerBroker
         try
         {
             stop.ThrowIfCancellationRequested();
-            using var cli = PinnedCodexExecutable.Open(codexExecutable);
+            string bin = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(codexExecutable));
+            if (!string.Equals(System.IO.Path.GetFileName(codexExecutable), "codex.exe", StringComparison.OrdinalIgnoreCase) || !string.Equals(System.IO.Path.GetFileName(bin), "bin", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("An official package entrypoint is required.");
+            using var package = VerifiedCodexPackage.Open(System.IO.Directory.GetParent(bin)?.FullName ?? throw new InvalidOperationException("Package root unavailable."));
+            using var cli = PinnedCodexExecutable.Open(package.Executable);
             string profile = "atlas_" + Guid.NewGuid().ToString("N");
             using var channel = new CodexProcessChannel(NativeCodexTurn.CreateProviderStart(cli.Path, profile));
             var turn = new NativeCodexTurn(approval, project, channel, profile);

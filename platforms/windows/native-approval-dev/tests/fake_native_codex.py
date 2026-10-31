@@ -6,6 +6,13 @@ import sys
 profile = os.environ['ATLAS_FIXTURE_PROFILE']
 project = os.environ['ATLAS_FIXTURE_PROJECT']
 mode = os.environ.get('ATLAS_FIXTURE_MODE', 'ok')
+if mode == 'stderr_probe':
+    print('FAKE_MXC_DIAGNOSTIC', file=sys.stderr, flush=True)
+    raise SystemExit(0)
+if mode == 'sandbox_fake':
+    with open(os.environ['ATLAS_FAKE_INSIDE'], 'w', encoding='utf-8') as output:
+        output.write('fixture')
+    raise SystemExit(0)
 if mode == 'argv_echo':
     print(json.dumps({'arguments': sys.argv[1:]}), flush=True)
     raise SystemExit(0)
