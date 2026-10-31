@@ -22,6 +22,7 @@ tasks on the Mac. Output lines for the overlay: "· note", "▸ step", "✓ answ
   atticus.py --unwatch                    stop every watch  |  --budget   is real use still under the cost and speed budget?
 All requests and interrupted steps go to ~/.config/atticus/log.jsonl with their cost (live actions are marked).
 """
+import contextlib
 import shlex
 import platform
 import fcntl
@@ -253,10 +254,11 @@ def _request_contains(evidence):
     if not root:
         return True
     try:
-        with open(request_file(root)) as f:
-            said = [f.read()]
-    except OSError:
+        said = [read_request_evidence(request_file(root))]
+    except FileNotFoundError:
         said = []
+    except OSError:
+        return False
     said += [r['q'] for r in recent() if time.time() - r['t'] < 600][-3:]   # the same turns the AI sees as Earlier
     needle = ' '.join(re.findall(r'\w+', evidence.lower()))
     return bool(needle) and any(f' {needle} ' in ' ' + ' '.join(re.findall(r'\w+', q.lower())) + ' ' for q in said)
@@ -1020,15 +1022,16 @@ def osa_quote(text):
 
 def wants_focus(task=None, sites=False):
     ask = os.environ.get('ATTICUS_ASK')
+    evidence = None
+    if ask:
+        try: evidence = read_request_evidence(request_file(ask))
+        except FileNotFoundError: pass
+        except OSError: return False
     if os.environ.get('ATTICUS_AGENT') and not sites:   # agents stay behind unless the user's own words asked for front work
         return bool(ask) and os.path.exists(os.path.join(agent_gate_dir(ask), 'focus-requested'))
     if ask and os.path.exists(os.path.join(ask, 'focus-requested')): return True
     if task is None:
-        task = os.environ.get('ATTICUS_REQUEST', '')
-        if ask:
-            try:
-                with open(request_file(ask)) as f: task = f.read()
-            except OSError: pass
+        task = evidence if evidence is not None else os.environ.get('ATTICUS_REQUEST', '')
     if re.search(r'\b(background|behind)\b', task, re.I): return False
     return sites or asks_front(task)
 
@@ -3283,9 +3286,11 @@ def hands(*args):
             if check.get('secure') and args[0] == 'type':
                 request = os.environ.get('ATTICUS_REQUEST', '')
                 ask = os.environ.get('ATTICUS_ASK')
-                if ask and os.path.exists(request_file(ask)):
-                    with open(request_file(ask)) as f:
-                        request = f.read()
+                if ask:
+                    try: request = read_request_evidence(request_file(ask))
+                    except OSError:
+                        denied.append('Secure field: request evidence is unavailable.')
+                        return False
                 if not (re.search(r'\b(type|enter|fill|paste)\b', request, re.I) and re.search(r'\b(password|passcode|pin|secret|secure|verification|one.time|otp|card|cvv|ssn|token|account|routing)\b', request, re.I)) or re.search(r"\b(don.t|do not|never)\s+(type|enter|fill|paste)\b", request, re.I):
                     denied.append('Secure field: the user must explicitly request typing into it.')
                     return False
@@ -4532,6 +4537,81 @@ def private_text(path, text):
         if tmp and os.path.exists(tmp): os.unlink(tmp)
 
 
+class SealedRequestUnavailable(OSError):
+    """Encrypted request evidence needs a trusted native-backed reader."""
+
+
+@contextlib.contextmanager
+def request_evidence_lock(path):
+    directory, name = os.path.dirname(path), os.path.basename(path)
+    if not name or name in ('.', '..'): raise OSError('Invalid request evidence path.')
+    lock_name = '.request-evidence.lock' if name == 'request' else '.request-evidence-' + hashlib.sha256(name.encode()).hexdigest() + '.lock'
+    folder = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    lock = None
+    try:
+        lock = os.open(lock_name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=folder)
+        info = os.fstat(lock)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.geteuid():
+            raise OSError('Invalid request evidence lock.')
+        os.fchmod(lock, 0o600); fcntl.flock(lock, fcntl.LOCK_EX)
+        yield folder
+    finally:
+        if lock is not None: os.close(lock)
+        os.close(folder)
+
+
+def _read_request_unlocked(path, folder):
+    fd = os.open(os.path.basename(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.geteuid(): raise OSError('Invalid request evidence.')
+        raw = stream.read(512001)
+    if len(raw) > 512000: raise OSError('Request evidence is too large.')
+    if raw.startswith(b'ATLAS-REQUEST-SEALED-V1\n'): raise SealedRequestUnavailable('Encrypted request evidence is unavailable.')
+    try: return raw.decode('utf-8')
+    except UnicodeDecodeError as error: raise OSError('Invalid request evidence.') from error
+
+
+def read_request_evidence(path):
+    with request_evidence_lock(path) as folder: return _read_request_unlocked(path, folder)
+
+
+def write_request_evidence(path, text):
+    if not isinstance(text, str): raise OSError('Invalid request evidence.')
+    try: encoded = text.encode('utf-8')
+    except UnicodeEncodeError as error: raise OSError('Invalid request evidence.') from error
+    if len(encoded) > 512000 or encoded.startswith(b'ATLAS-REQUEST-SEALED-V1\n'):
+        raise OSError('Invalid request evidence.')
+    with request_evidence_lock(path) as folder:
+        try: _read_request_unlocked(path, folder)
+        except FileNotFoundError: pass
+        name = '.request-plain-' + uuid.uuid4().hex
+        made = False
+        try:
+            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
+            made = True
+            with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+                os.fchmod(stream.fileno(), 0o600); stream.write(text); stream.flush(); os.fsync(stream.fileno())
+            os.replace(name, os.path.basename(path), src_dir_fd=folder, dst_dir_fd=folder)
+            made = False
+            info = os.stat(os.path.basename(path), dir_fd=folder, follow_symlinks=False)
+            return (info.st_dev, info.st_ino)
+        finally:
+            if made: os.unlink(name, dir_fd=folder)
+
+
+def remove_request_if_unchanged(path, revision, identity):
+    """Do not remove migrated or replaced evidence during process cleanup."""
+    try:
+        with request_evidence_lock(path) as folder:
+            text = _read_request_unlocked(path, folder)
+            info = os.stat(os.path.basename(path), dir_fd=folder, follow_symlinks=False)
+            if (info.st_dev, info.st_ino) == identity and hashlib.sha256(text.encode('utf-8')).hexdigest() == revision:
+                os.unlink(os.path.basename(path), dir_fd=folder)
+    except OSError:
+        pass  # Preserve evidence whenever cleanup cannot prove identity.
+
+
 def saved_chats():
     try:
         with open(os.path.join(DIR, 'chats.json')) as f: return json.load(f)
@@ -4670,8 +4750,8 @@ def request_file(directory):
 
 def save_request(ask, text):
     path = request_file(ask); os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    private_text(path, text)
-    atexit.register(lambda: os.path.exists(path) and os.remove(path))
+    identity = write_request_evidence(path, text)
+    atexit.register(remove_request_if_unchanged, path, hashlib.sha256(text.encode('utf-8')).hexdigest(), identity)
 
 
 def action_kind(tool, inp):
@@ -5319,9 +5399,11 @@ class Agents:
                     private_json(os.path.join(agent_gate_dir(row['directory']), 'uncertain-write'), True)
                 if evidence is not None or initial is not None or not os.path.exists(path):
                     request = evidence if evidence is not None else initial or row['brief']
-                    private_text(path, request)
-                    with open(path) as f: words = f.read() if evidence is not None or initial is not None else ''
-                else: words = ''
+                    write_request_evidence(path, request)
+                    words = read_request_evidence(path) if evidence is not None or initial is not None else ''
+                else:
+                    read_request_evidence(path)  # refuse unavailable sealed evidence before starting
+                    words = ''
                 # Only the user's words (or a moved ask that already worked in front) let an agent come forward.
                 focus, moved_focus = os.path.join(agent_gate_dir(row['directory']), 'focus-requested'), row.pop('focus', False)
                 if words and re.search(r'\b(background|behind)\b', words, re.I):
@@ -5528,7 +5610,7 @@ class Agents:
                 row.update(status='needs-you', step='Needs ' + name, question={'need': 'connector', 'app': name, 'q': f'Connect {name} in Claude',
                                                                               'cmd': row['summary'][:300], '_a': uuid.uuid4().hex})
             if row['status'] == 'done' and pref('learn', True):
-                try: request = Path(request_file(row['directory'])).read_text()
+                try: request = read_request_evidence(request_file(row['directory']))
                 except OSError: request = ''   # never learn a generated brief in place of the user's words
                 commands = agent_commands(row, request) if request else []
                 named = shortcut_name(request, result)

@@ -79,6 +79,18 @@ class AgentTests(unittest.TestCase):
     def prepare(self, brief='WAIT fixture', **extra):
         return self.manager.prepare({'title':'Fixture task','brief':brief,'context':'Known text','connectors':[],**extra})
 
+    def test_resume_refuses_unavailable_sealed_request_before_launch(self):
+        row = self.manager.new()
+        row.update(title='Synthetic task', brief='WAIT fixture', status='stopped')
+        self.manager.rows[row['id']] = row
+        path = Path(atticus.request_file(row['directory']))
+        sealed = b'ATLAS-REQUEST-SEALED-V1\nsynthetic ciphertext'; path.write_bytes(sealed)
+        with patch.object(self.manager, 'launch') as launch:
+            self.manager.start(row['id'], 'generated resume')
+        launch.assert_not_called()
+        self.assertEqual(path.read_bytes(), sealed)
+        self.assertEqual(row['status'], 'failed')
+
     def test_conversation_rename_persists_without_changing_work(self):
         row = self.manager.new()
         row.update(title='Original', brief='Keep this task', status='done', session='fixture-session', result='Saved answer')

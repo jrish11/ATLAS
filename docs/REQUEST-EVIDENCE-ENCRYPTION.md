@@ -1,8 +1,11 @@
 # Request evidence encryption: disabled development adapter
 
 `request_evidence_store.py` and `RequestCrypto.swift` are an isolated candidate,
-not connected to any app writer or reader. Existing request files and behavior
-are unchanged. The helper uses CryptoKit AES-256-GCM with a fresh system nonce,
+not connected to any app decryption path. The development branch routes direct
+request readers and writers in both Python app copies through a shared lock;
+until a trusted decryptor exists they reject sealed evidence before launching or
+authorizing work. Existing plaintext records are not automatically migrated.
+The helper uses CryptoKit AES-256-GCM with a fresh system nonce,
 binds ciphertext to the agent record ID as authenticated associated data, and
 receives a supplied key over a private subprocess pipe. It does not access
 Keychain, environment credentials, or a network. The adapter requires a
@@ -31,10 +34,12 @@ error and must inspect the file before retrying.
 
 1. Independently review this adapter, the helper, and the native authorization
    boundary. A Python `confirmed=True` argument alone is not owner authority.
-2. Coordinate **every** legacy request reader and writer with the same lock;
-   otherwise an uncooperative writer can race the last revision check. Integrate
-   all helper and resume paths without treating generated briefs as owner words.
-   The current application is not coordinated and must not enable the adapter.
+2. Independently verify **every** legacy request reader, writer, helper, and
+   process uses the same lock; otherwise an uncooperative writer can race the
+   last revision check. Direct Python call sites now have guarded integration,
+   but no trusted key-backed decryptor is wired. Integrate all helper and resume
+   paths without treating generated briefs as owner words. Do not enable the
+   adapter until that end-to-end coordination is proven.
 3. Provide a native preview of exact scope and recovery consequences, and ask
    for action-time owner approval to create a **new, separate, device-only
    Keychain item for request-evidence encryption**. Do not read, transfer, or
