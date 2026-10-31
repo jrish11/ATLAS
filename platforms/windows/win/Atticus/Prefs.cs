@@ -36,11 +36,11 @@ static class Prefs
     // Hotkey: virtual-key code + modifiers (1 Alt, 2 Ctrl, 4 Shift, 8 Win, like RegisterHotKey).
     public static readonly Dictionary<string, object> Defaults = new()
     {
-        ["provider"] = "claude", ["codexWorkspace"] = "", ["hotkeyCode"] = 0x20, ["hotkeyMods"] = 3, ["hotkeyLabel"] = "Ctrl+Alt+Space", ["login"] = true, ["paused"] = false, ["corner"] = "top-left", ["linger"] = "normal",
+        ["provider"] = "claude", ["codexWorkspace"] = "", ["hotkeyCode"] = 0x20, ["hotkeyMods"] = 3, ["hotkeyLabel"] = "Ctrl+Alt+Space", ["login"] = false, ["paused"] = false, ["corner"] = "top-left", ["linger"] = "normal",
         ["soundStart"] = "Speech On", ["soundDone"] = "Windows Notify System Generic", ["soundStop"] = "Speech Off", ["volume"] = 0.3, ["model"] = "haiku", ["instant"] = true,
         ["ahead"] = true, ["aheadDelay"] = 0.9, ["live"] = true, ["screen"] = "auto", ["openOn"] = "here",
         ["speak"] = false, ["autoCopy"] = false, ["hideWhenSharing"] = true, ["menuIcon"] = true, ["autoUpdate"] = false,
-        ["learn"] = true, ["safe"] = true, ["pointer"] = false, ["learnMe"] = true, ["stats"] = true, ["tips"] = true, ["askMe"] = true, ["escalate"] = true, ["escalateAuto"] = false, ["improve"] = false, ["improveAsked"] = false, ["input"] = "voice", ["talkMode"] = "hold",
+        ["learn"] = true, ["safe"] = true, ["pointer"] = false, ["learnMe"] = true, ["stats"] = false, ["tips"] = false, ["askMe"] = true, ["escalate"] = true, ["escalateAuto"] = false, ["improve"] = false, ["improveAsked"] = false, ["input"] = "voice", ["talkMode"] = "hold",
         ["boxW"] = 460, ["boxH"] = 360, ["speechModel"] = "base.en", ["onboarded"] = false,
     };
     public static Dictionary<string, object> D = Load();

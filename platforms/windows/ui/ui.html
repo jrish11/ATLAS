@@ -115,7 +115,7 @@
       0 4px 14px rgba(0,0,0,.35); }
   #x.hot svg { transform: rotate(90deg); }
 
-  /* safe mode: ATLAS asks before it deletes, sends or buys */
+  /* Legacy approval card styling; AI actions are disabled in this preview. */
   .ok { margin-top: 10px; padding: 11px 12px 12px; border-radius: 14px; background: rgba(255,255,255,.07); cursor: pointer;
     box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14); animation: grow .32s var(--spring) both; overflow: hidden; max-height: 320px;
     transition: max-height .34s var(--ease), opacity .25s, margin .34s var(--ease), padding .34s var(--ease), background .2s; }
@@ -171,7 +171,7 @@
   .rewrite button.del { background: #ff453a; }
   .sel { font-size: 11.5px; color: #8e8e93; margin-bottom: 6px; padding-left: 8px; border-left: 2px solid rgba(10,132,255,.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  /* safe mode off: a small tag says so; clicking it turns safe mode back on */
+  /* Hidden legacy indicator retained for layout compatibility. */
   #mode { position: absolute; top: 12px; right: 42px; z-index: 2; display: none; align-items: center; gap: 5px; height: 22px; padding: 0 9px;
     box-sizing: border-box; border-radius: 11px; font-size: 11px; font-weight: 500; line-height: 1; color: #ff9f0a; cursor: pointer;
     background: rgba(255,159,10,.13); box-shadow: inset 0 0 0 .5px rgba(255,159,10,.32); transition: transform .3s var(--spring), background .2s; }
@@ -234,7 +234,7 @@
   }
 </style></head>
 <body>
-<div id="mode" title="Safe mode is off. Click to turn it on.">Full access</div>
+<div id="mode" title="AI tasks are unavailable in this preview.">Limited preview</div>
 <div id="x"><svg viewBox="0 0 10 10"><path d="M1 1L9 9M9 1L1 9"/></svg></div>
 <div id="card">
   <div id="head"><canvas id="orb"></canvas><div id="status"></div></div>
@@ -508,12 +508,6 @@
           b.onclick = e => { e.stopPropagation(); b.remove(); post({ send: `That's wrong, try again: ${q}\n(If it isn't clear what to change, ask me what was wrong.)` }); };
           clock.append(b);
         }
-      } else if (tag === 'i' && turn()) {
-        const learned = s.startsWith('Learned: '), d = document.createElement('div');   // "Learned" when it saved a rule, else "Tip"
-        d.className = 'tip' + (learned ? ' learned' : ''); d.dataset.k = learned ? 'Learned' : 'Tip'; d.textContent = learned ? s.slice(9) : s;
-        if (!learned) { const o = document.createElement('button'); o.className = 'off'; o.textContent = 'Turn off tips'; d.append(o); }
-        turn().append(d);
-        setTimeout(() => { d.classList.add('gone'); setTimeout(() => { d.remove(); fit(); }, 400); }, 9000);   // never sticks around
       }
       fit();
     },
@@ -550,7 +544,6 @@
       if (field) return field.focus();
       if (b) return b.click();
       if (el?.closest('#mode')) return post({ safe: true });
-      if (el?.closest('.tip .off')) { post({ off: 'tips' }); el.closest('.tip').remove(); return fit(); }   // its own "Turn off": no more tips
       if (el?.closest('.tip')) { el.closest('.tip').remove(); return fit(); }   // click a tip: it goes
       const on = el?.closest('.a:not(.stopped):not(.cancel)'), q = el?.closest('.q:not(.empty)');
       drop();
@@ -611,18 +604,6 @@
         post(retry ? { pick: 'n' } : { allow: false }); clockGo(); d.remove(); status(retry ? 'Offer expired' : 'Approval expired', true); setState('solving'); fit();
       }, 60000);
     },
-    improve() {   // once, after a task that worked: people who updated never saw setup's question
-      $('thread').querySelectorAll('.ok.improve').forEach(e => e.remove());
-      const d = document.createElement('div'); d.className = 'ok offer improve';
-      d.innerHTML = '<b>Help make ATLAS better?</b><p>When a task fails, send what you asked, the steps and why. Anonymous, cleaned first. Change it in Settings.</p><div><button>Not Now</button><button class="go">Help Improve</button></div>';
-      d.querySelectorAll(':scope > div > button').forEach((b, i) => b.onclick = e => {
-        e.stopPropagation(); if (d.classList.contains('gone')) return;
-        post({ improve: !!i }); status(i ? 'Thank you' : '', true);
-        d.classList.add('gone'); follow(360); setTimeout(() => { d.remove(); fit(); }, 360);
-      });
-      d.onanimationend = () => d.style.animation = 'none';
-      (turn() || $('thread')).append(d); fit();
-    },
     pick({ q, options }) {   // "which one?": the index picked (or "" = none of these) goes back to the app, then the card goes
       $('thread').querySelectorAll('.pk').forEach(e => e.remove());
       const d = document.createElement('div'); d.className = 'pk';
@@ -663,7 +644,7 @@
       (turn() || $('thread')).append(d); setState('breathing'); status('Waiting for you'); clockHold(); fit();
       setTimeout(() => d.isConnected && done(-1, 'Pick expired'), 105000);   // the brain stops waiting at 110 s
     },
-    mode(safe) { $('mode').classList.toggle('on', !safe); },
+    mode() { $('mode').classList.remove('on'); },
     xhot(on) { $('x').classList.toggle('hot', on); },
     copied() { status('Copied to clipboard'); setTimeout(() => $('status').textContent === 'Copied to clipboard' && status(''), 1400); },
   };

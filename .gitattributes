@@ -1,0 +1,6 @@
+# Preserve bytes used by reviewed release notice/lock hashes on Windows.
+/LICENSE -text
+/LICENSE-Plip -text
+/platforms/windows/LICENSE -text
+/platforms/windows/requirements-windows-lock.txt -text
+/platforms/windows/notices/** -text

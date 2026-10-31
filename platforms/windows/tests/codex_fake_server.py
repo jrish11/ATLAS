@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import tempfile
 import time
 
 def send(value):
@@ -40,8 +41,8 @@ for line in sys.stdin:
     elif method in ('hooks/list', 'skills/list'):
         field = 'hooks' if method == 'hooks/list' else 'skills'
         enabled = os.environ.get('FIXTURE_' + field.upper()) and (not os.environ.get('FIXTURE_OVERRIDE') or os.environ.get('FIXTURE_SKILLS_STUCK'))
-        items = ([{'enabled': True, 'path': '/tmp/fixture/SKILL.md'}] if enabled else
-                 [{'enabled': False, 'path': '/tmp/fixture/SKILL.md'}] if field == 'skills' and os.environ.get('FIXTURE_SKILLS') else [])
+        items = ([{'enabled': True, 'path': os.path.join(tempfile.gettempdir(), 'fixture', 'SKILL.md')}] if enabled else
+                 [{'enabled': False, 'path': os.path.join(tempfile.gettempdir(), 'fixture', 'SKILL.md')}] if field == 'skills' and os.environ.get('FIXTURE_SKILLS') else [])
         send({'id': ident, 'result': {'data': [{'cwd': params['cwds'][0], field: items, 'errors': []}]}})
     elif method in ('thread/start', 'thread/resume'):
         assert 'sandbox' not in params and params['approvalPolicy'] == 'on-request'

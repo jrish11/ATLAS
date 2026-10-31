@@ -73,7 +73,6 @@ static class Program
         Listen();
         Updater.Schedule();
         if (!Prefs.Bool("onboarded") || !File.Exists(Paths.Model)) Onboarding.Open();
-        else _ = Task.Run(() => OnboardingWindow.Plan()).ContinueWith(t => { if (t.Result.TryGetProperty("ok", out var ok) && !ok.GetBoolean()) Post(() => Onboarding.Open()); });   // set up once, but Claude signed out since
         if (Environment.GetEnvironmentVariable("ATTICUS_DEMO") is { Length: > 0 } demo) { await Task.Delay(1500); Box.Demo(demo); }
     }
 

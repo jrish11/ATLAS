@@ -236,7 +236,7 @@ class CodexProviderTests(unittest.TestCase):
 
     def test_replaced_project_during_preflight_never_dispatches_turn(self):
         for trigger in ('model/list','thread/start'):
-            with self.subTest(trigger=trigger), tempfile.TemporaryDirectory(dir='/tmp') as d:
+            with self.subTest(trigger=trigger), tempfile.TemporaryDirectory() as d:
                 root=Path(d).resolve()/'project';root.mkdir();sent=[]
                 class ReplaceDuringPreflight(CodexProvider):
                     def _send(self,payload):
@@ -254,19 +254,19 @@ class CodexProviderTests(unittest.TestCase):
                 if trigger == 'model/list': self.assertNotIn('thread/start',sent)
 
     def test_replaced_project_after_preflight_blocks_skills_relaunch(self):
-        with tempfile.TemporaryDirectory(dir='/tmp') as d:
+        with tempfile.TemporaryDirectory() as d:
             root=Path(d).resolve()/'project';root.mkdir();launches=[]
             def spawn(*args,**kw): launches.append(1);return fake_spawn(*args,**kw)
             class ReplaceAfterPreflight(CodexProvider):
                 def _preflight(self,cwd):
                     root.rename(root.parent/'old');root.mkdir()
-                    return ['/tmp/fixture/SKILL.md']
+                    return [os.path.join(tempfile.gettempdir(), 'fixture', 'SKILL.md')]
             with self.assertRaisesRegex(ProviderError,'project folder changed'):
                 ReplaceAfterPreflight(popen=spawn).run(str(root),'fixture')
             self.assertEqual(len(launches),1)
 
     def test_cancel_during_preflight_blocks_skills_relaunch_and_turn(self):
-        with tempfile.TemporaryDirectory(dir='/tmp') as d:
+        with tempfile.TemporaryDirectory() as d:
             sent=[];launches=[]
             def spawn(*args,**kw): launches.append(1);return fake_spawn(*args,**kw)
             class CancelDuringPreflight(CodexProvider):
@@ -275,7 +275,7 @@ class CodexProviderTests(unittest.TestCase):
                     sent.append(payload.get('method'));return result
                 def _preflight(self,cwd):
                     self.interrupt()
-                    return ['/tmp/fixture/SKILL.md']
+                    return [os.path.join(tempfile.gettempdir(), 'fixture', 'SKILL.md')]
             provider=CancelDuringPreflight(popen=spawn)
             with self.assertRaisesRegex(ProviderError,'cancelled before launch'):
                 provider.run(d,'fixture')

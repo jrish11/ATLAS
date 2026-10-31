@@ -154,9 +154,9 @@
   <button data-s="general" class="on"><i class="ni" style="background:#8e8e93"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></i>General</button>
   <button data-s="sound"><i class="ni" style="background:#ff375f"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4zM16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg></i>Sound</button>
   <button data-s="brain"><i class="ni" style="background:#d97757"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg></i>Intelligence</button>
-  <button data-s="screen"><i class="ni" style="background:#bf5af2"><svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20h7M12 16.5V20"/></svg></i>Screen &amp; Windows</button>
+  <button data-s="screen" hidden><i class="ni" style="background:#bf5af2"><svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20h7M12 16.5V20"/></svg></i>Screen &amp; Windows</button>
   <button data-s="memory"><i class="ni" style="background:#ff9f0a"><svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"/></svg></i>Memory</button>
-  <button data-s="integrations"><i class="ni" style="background:#bf5af2"><svg viewBox="0 0 24 24"><path d="M4 11l8-6 8 6v8a1 1 0 0 1-1 1h-4v-5h-6v5H5a1 1 0 0 1-1-1z"/></svg></i>Integrations</button>
+  <button data-s="integrations" hidden><i class="ni" style="background:#bf5af2"><svg viewBox="0 0 24 24"><path d="M4 11l8-6 8 6v8a1 1 0 0 1-1 1h-4v-5h-6v5H5a1 1 0 0 1-1-1z"/></svg></i>Integrations</button>
   <button data-s="usage"><i class="ni" style="background:#30d158"><svg viewBox="0 0 24 24"><path d="M5 19V11M12 19V5M19 19v-6"/></svg></i>Usage</button>
   <button data-s="apps"><i class="ni" style="background:#ff453a"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg></i>Apps</button>
   <button data-s="account"><i class="ni" style="background:#0a84ff"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></i>Account &amp; Access</button>
@@ -191,7 +191,6 @@
     <div class="group">
       <div class="row"><div class="t"><b>Read answers aloud</b><span>In Windows’ voice. Esc stops it.</span></div><label class="sw"><input type="checkbox" data-k="speak"></label></div>
       <div class="row"><div class="t"><b>Copy answers automatically</b><span>Every answer lands on your clipboard, ready to paste.</span></div><label class="sw"><input type="checkbox" data-k="autoCopy"></label></div>
-      <div class="row"><div class="t"><b>Tips</b><span>Once in a while, a small tip under the answer. After a miss, how to teach ATLAS to do it right.</span></div><label class="sw"><input type="checkbox" data-k="tips"></label></div>
       <div class="row"><div class="t"><b>Ask me when unsure</b><span>When more than one thing fits, ATLAS shows you the choices in the box instead of guessing.</span></div><label class="sw"><input type="checkbox" data-k="askMe"></label></div>
     </div>
     <h3>The answer box</h3>
@@ -215,25 +214,19 @@
 
   <section id="brain">
     <h1>Intelligence</h1>
-    <p class="lede">ATLAS thinks with Claude, on your Claude plan.</p>
+    <p class="lede">This limited Windows preview supports local commands only. AI tasks and saved shell shortcuts are unavailable.</p>
     <h3>Assistant provider</h3>
-    <div class="group"><div class="row"><div class="t"><b>AI provider</b><span id="providerstatus">Codex tasks are unavailable until Windows safety and cancellation checks are verified.</span></div><button class="btn" data-do="chooseClaude">Claude</button><button class="btn" id="codexchoose" data-do="chooseCodex" disabled>Codex</button></div>
+    <div class="group"><div class="row"><div class="t"><b>AI provider</b><span id="providerstatus">Claude and Codex tasks are unavailable in this preview.</span></div><button class="btn" data-do="chooseClaude" disabled>Claude</button><button class="btn" id="codexchoose" data-do="chooseCodex" disabled>Codex</button></div>
     <div class="row"><div class="t"><b>Codex project</b><span id="codexfolder">Choose a project folder when Codex is available.</span></div><button class="btn" id="codexfolderbtn" data-do="codexFolder" disabled>Choose folder</button></div></div>
     <h3>ChatGPT account (experimental)</h3>
-    <div class="group"><div class="row"><div class="t"><b>Codex account</b><span id="codexstatus">Account check only. ATLAS tasks still use Claude.</span></div><button class="btn" data-do="checkCodex">Check account</button></div></div>
+    <div class="group"><div class="row"><div class="t"><b>Codex account</b><span id="codexstatus">Account checks and AI tasks are unavailable.</span></div><button class="btn" data-do="checkCodex" disabled>Check account</button></div></div>
     <h3>Model</h3>
     <div class="group">
-      <div class="row"><div class="t"><b>Claude model</b><span id="modelwhy"></span></div><div class="seg" data-k="model"><button data-v="haiku">Haiku</button><button data-v="sonnet">Sonnet</button><button data-v="opus">Opus</button></div></div>
-      <div class="row"><div class="t"><b>Offer Sonnet when stuck</b><span>If a task fails on Haiku, ATLAS asks to try that one task again with Sonnet. Your other asks stay on Haiku.</span></div><label class="sw"><input type="checkbox" data-k="escalate"></label></div>
-      <div class="row"><div class="t"><b>Without asking</b><span>Retry with Sonnet right away. Slower and uses more of your plan, only when a task fails.</span></div><label class="sw"><input type="checkbox" data-k="escalateAuto"></label></div>
+      <div class="row"><div class="t"><b>Claude model (unavailable)</b><span id="modelwhy"></span></div><div class="seg" data-k="model"><button data-v="haiku" disabled>Haiku</button><button data-v="sonnet" disabled>Sonnet</button><button data-v="opus" disabled>Opus</button></div></div>
     </div>
     <h3>Speed</h3>
     <div class="group">
       <div class="row"><div class="t"><b>Instant commands</b><span>Opening apps, moving windows, searches and music run locally with no AI.</span></div><label class="sw"><input type="checkbox" data-k="instant"></label></div>
-      <div class="row"><div class="t"><b>Act while I’m talking</b><span>With Instant commands on, supported commands run mid-sentence. Learned shortcuts wait for confirmed words.</span></div><label class="sw"><input type="checkbox" data-k="live"></label></div>
-      <div class="row"><div class="t"><b>Learn commands</b><span>Saves successful steps automatically. Stable shortcuts run without AI; app workflows reuse saved procedures with fresh checks.</span></div><label class="sw"><input type="checkbox" data-k="learn"></label></div>
-      <div class="row"><div class="t"><b>Start while I’m talking</b><span>Starts thinking during a pause. AI tools wait until you send and your words are confirmed.</span></div><label class="sw"><input type="checkbox" data-k="ahead"></label></div>
-      <div class="row"><div class="t"><b>Pause before starting</b><span>Shorter is faster. Longer waits more if you pause mid-sentence.</span></div><input type="range" min="0.4" max="1.5" step="0.1" data-k="aheadDelay"><span class="val" id="delayv"></span></div>
     </div>
   </section>
 
@@ -253,7 +246,6 @@
     <div class="group">
       <div class="row"><div class="t"><b>Name</b></div><input class="field" id="myname" maxlength="40" placeholder="What should ATLAS call you?" aria-label="Your name"></div>
       <div class="row" style="align-items:flex-start"><div class="t" style="flex:none;width:120px"><b>A line about you</b><span>Sent with every ask, so keep it short.</span></div><textarea class="field" id="myabout" maxlength="200" placeholder="Student in Chicago. Uses Safari and Spotify." aria-label="About you"></textarea><span class="count" id="abcount"></span></div>
-      <div class="row"><div class="t"><b>Learn about me</b><span>Picks up lasting facts you mention (your city, your apps), 8 at most. Never health, money or passwords.</span></div><label class="sw"><input type="checkbox" data-k="learnMe"></label></div>
       <div id="facts"></div>
     </div>
     <p class="lede" style="margin:8px 4px 0;font-size:11.5px">All of this together stays under 300 characters, about 0.008¢ an ask.</p>
@@ -266,7 +258,7 @@
 
   <section id="integrations">
     <h1>Integrations</h1>
-    <p class="lede">Your own servers. Set up the ones you run: ATLAS only mentions a service to the AI when you ask about it, so each one costs nothing until you use it. Keys stay in Windows Credential Manager on this PC.</p>
+    <p class="lede">Integrations are unavailable in this preview.</p>
     <div id="ints"><div class="group"><div class="empty">Loading…</div></div></div>
     <h3>Add your own</h3>
     <div class="group" id="addown">
@@ -280,15 +272,15 @@
       <div class="row"><div class="t" style="flex:none;width:200px"><b>What it is</b><span>One line for the AI.</span></div><input class="field" style="flex:1" data-o="about" placeholder="Our recipes and meal plans" spellcheck="false"></div>
       <div class="row"><div class="t" style="flex:none;width:200px"><b>Words that mean it</b><span>Commas. ATLAS brings it up only for these.</span></div><input class="field" style="flex:1" data-o="words" placeholder="recipe, recipes, meal plan, dinner" spellcheck="false"></div>
       <div class="row own-api"><div class="t" style="flex:none;width:200px"><b>API docs</b><span>Optional link.</span></div><input class="field" style="flex:1" data-o="docs" placeholder="https://docs.mealie.io/api/" spellcheck="false"></div>
-      <div class="row own-mcp" hidden><div class="t"><b>Ask before it changes things</b><span>Every tool that isn't a get, list or search waits for your Allow.</span></div><label class="sw"><input type="checkbox" data-o="ask" checked></label></div>
-      <div class="row"><div class="t"><span id="ownres">Reading from a web API runs freely; anything that changes it asks you first.</span></div><button class="btn blue" id="ownadd">Add &amp; Test</button></div>
+      <div class="row own-mcp" hidden><div class="t"><b>Ask before it changes things</b><span>Integrations are unavailable in this preview.</span></div><label class="sw"><input type="checkbox" data-o="ask" checked></label></div>
+      <div class="row"><div class="t"><span id="ownres">Integrations are unavailable in this preview.</span></div><button class="btn blue" id="ownadd">Add &amp; Test</button></div>
     </div>
     <p class="lede" style="margin:8px 4px 0;font-size:11.5px">Writing your own in Python? Put it in your <a data-do="intFolder">integrations folder</a>, shaped like the ones in ATLAS's <code>integrations</code> folder. It survives updates; share good ones as a pull request.</p>
   </section>
 
   <section id="usage">
     <h1>Usage</h1>
-    <p class="lede">What ATLAS has cost, priced at Claude API list rates. On a Claude plan it comes out of your plan’s usage, not your wallet.</p>
+    <p class="lede">What Local command history. AI tasks are unavailable in this preview.</p>
     <div class="stats" id="stats"></div>
     <h3>History</h3>
     <div class="group">
@@ -312,13 +304,11 @@
     <h1>Account &amp; Access</h1>
     <p class="lede">What ATLAS needs to work.</p>
     <div class="group">
-      <div class="row"><div class="t"><b>Claude</b><span class="status"><i class="dot" id="pdot"></i><span id="ptext">Checking…</span></span></div><button class="btn" data-do="setup" id="pbtn">Set Up</button></div>
+      <div class="row"><div class="t"><b>AI tasks</b><span class="status"><i class="dot" id="pdot"></i><span id="ptext">Unavailable in this preview.</span></span></div></div>
     </div>
     <h3>Safety</h3>
     <div class="group">
-      <div class="row"><div class="t"><b>Safe mode</b><span>Deletes, sends, purchases, file changes and system commands wait for your Allow. (Windows has no sandbox for Claude Code, so this check is the whole of safe mode.)</span></div><label class="sw"><input type="checkbox" data-k="safe"></label></div>
-      <div class="row"><div class="t"><b>Count me as a user</b><span>Once a day, sends a random ID so the maker knows how many people use ATLAS. Never your name, your asks or your screen.</span></div><label class="sw"><input type="checkbox" data-k="stats"></label></div>
-      <div class="row"><div class="t"><b>Help improve ATLAS</b><span>When a task fails, sends what you asked, the steps it took and why, so the next version gets it right. Anonymous. Emails, numbers, file paths and anything typed for you are removed first.</span></div><label class="sw"><input type="checkbox" data-k="improve"></label></div>
+      <div class="row"><div class="t"><b>Preview limits</b><span>AI actions and saved shell shortcuts are disabled. Local commands are not sandboxed.</span></div></div>
     </div>
     <h3>Permissions</h3>
     <div class="group" id="perms">
@@ -417,9 +407,7 @@
     document.querySelectorAll('select').forEach(s => s.value = P[s.dataset.k]);
     document.querySelectorAll('input[type=range]').forEach(r => r.value = P[r.dataset.k]);
     $('volv').textContent = Math.round(P.volume / .6 * 100) + '%';
-    $('delayv').textContent = (+P.aheadDelay).toFixed(1) + ' s';
     $('modelwhy').textContent = WHY[P.model] || '';
-    document.querySelector('[data-k=aheadDelay]').closest('.row').style.opacity = P.ahead ? 1 : .45;
   }
 
   const money = u => u < 1 ? (u * 100).toFixed(u < .1 ? 2 : 1) + '¢' : '$' + u.toFixed(2);
@@ -449,7 +437,6 @@
       `<div class="row rule"><div class="t"><span style="margin:0;color:var(--fg)">${esc(f)}</span></div><button class="x" data-f="${i}" aria-label="Forget this">×</button></div>`).join('');
     document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => post({ do: 'me', what: 'drop', text: m.facts[+b.dataset.f] }));
     $('ptext').textContent = s.plan.text; $('pdot').classList.toggle('bad', !s.plan.ok);
-    $('pbtn').style.display = s.plan.ok ? 'none' : '';
   }
 
   // About you: saved when the field loses focus or on Return
@@ -509,7 +496,7 @@
     document.querySelectorAll('.own-api').forEach(r => r.hidden = ownKind !== 'api');
     document.querySelectorAll('.own-mcp').forEach(r => r.hidden = ownKind !== 'mcp');
     document.querySelector('[data-o="url"]').placeholder = ownKind === 'mcp' ? 'http://<server>:<port>/mcp' : 'http://<server>:9000';
-    $('ownres').textContent = ownKind === 'mcp' ? 'ATLAS connects to it only for requests that use its words.' : 'Reading from a web API runs freely; anything that changes it asks you first.';
+    $('ownres').textContent = ownKind === 'mcp' ? 'Integrations are unavailable in this preview.' : 'Integrations are unavailable in this preview.';
   });
   document.querySelector('[data-o="auth"]').onchange = e => {
     const n = document.querySelector('[data-o="auth_name"]');
@@ -523,7 +510,7 @@
   };
   window.st = {
     codexStatus(text) { $('codexstatus').textContent = text; },
-    codexReady(ready) { $('codexchoose').disabled = !ready; $('codexfolderbtn').disabled = !ready; if (ready) $('providerstatus').textContent = 'Select a provider and project folder.'; },
+    codexReady() { $('codexchoose').disabled = true; $('codexfolderbtn').disabled = true; },
     ownResult(text) {
       $('ownres').textContent = text;
       if (/saved/i.test(text)) document.querySelectorAll('#addown input.field').forEach(i => i.value = '');

@@ -109,12 +109,12 @@ class BrainTests(unittest.TestCase):
                             fast=lambda _: 'Opened Spotify.', remember_turn=lambda *_: None), \
              patch.object(atticus.signal, 'signal'), \
              patch('sys.argv', ['atticus.py', '--fast', 'open Spotify']), \
-             patch('sys.stdout', io.StringIO()), patch.dict(os.environ, {'ATTICUS_LIVE': '1'}):
+             patch('sys.stdout', io.StringIO()), patch.dict(os.environ, {'ATTICUS_LIVE': ''}):
             atticus.main()
             rows = atticus.read_rows(str(Path(root) / 'log.jsonl'))
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]['usd'], 0)
-            self.assertTrue(rows[0]['live'])
+            self.assertFalse(rows[0]['live'])
 
     def test_confirmed_instant_command_skips_context_work(self):
         with patch.multiple(atticus, **{name: unittest.mock.DEFAULT for name in
@@ -131,18 +131,13 @@ class BrainTests(unittest.TestCase):
             mocks['front'].assert_not_called()
             mocks['say'].assert_called_once_with('✓', 'Opened Notes.')
 
-    def test_stream_requires_a_real_terminal_answer(self):
-        for stream, expected in [([], 'No answer came back. Please try again.'),
-                                 ([{'type': 'result', 'result': ''}], 'No answer came back. Please try again.'),
-                                 ([{'type': 'result', 'result': 'Found it.', 'total_cost_usd': .001}], 'Found it.')]:
-            p = unittest.mock.Mock()
-            p.stdin = io.StringIO()
-            p.stdout = [json.dumps(row) + '\n' for row in stream]
-            p.ask = ''; p.returncode = 0
-            reply, _, _ = atticus.run('test', p)
-            self.assertEqual(reply, expected)
-            self.assertEqual(atticus.run.cmds, [])
-            self.assertEqual(atticus.run.ok, expected == 'Found it.')
+    def test_model_stream_is_not_read_or_written(self):
+        p = unittest.mock.Mock()
+        reply, _, _ = atticus.run('test', p)
+        self.assertIn('unavailable', reply)
+        self.assertFalse(atticus.run.ok)
+        p.stdin.write.assert_not_called()
+        p.wait.assert_not_called()
 
     def test_truncated_history_preserves_valid_turns(self):
         with tempfile.TemporaryDirectory() as root:
@@ -152,39 +147,14 @@ class BrainTests(unittest.TestCase):
             with patch.object(atticus, 'RECENT', str(path)):
                 self.assertEqual(atticus.recent(), [turn])
 
-    def test_error_result_is_not_learned(self):
+    def test_injected_model_process_cannot_dispatch(self):
         p = unittest.mock.Mock()
-        p.stdin = io.StringIO(); p.ask = ''; p.returncode = 0
-        p.stdout = map(json.dumps, [
-            {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'Bash', 'input': {'command': 'open -a Notes'}}]}},
-            {'type': 'result', 'is_error': True, 'result': 'Could not finish.'}])
-        with patch.object(atticus, 'say'):
-            atticus.run('test', p)
+        result, _, _ = atticus.run('send the question', p)
+        self.assertIn('unavailable', result)
+        self.assertEqual(atticus.run.ran, [])
         self.assertEqual(atticus.run.cmds, [])
-        self.assertEqual(atticus.run.ran, ['open -a Notes'])
         self.assertFalse(atticus.run.ok)
-
-    def test_recovered_tool_error_keeps_success_but_is_not_learned(self):
-        p = unittest.mock.Mock()
-        p.stdin = io.StringIO(); p.ask = ''; p.returncode = 0
-        p.stdout = map(json.dumps, [
-            {'type': 'user', 'message': {'content': [{'type': 'tool_result', 'is_error': True}]}},
-            {'type': 'user', 'message': {'content': [{'type': 'tool_result', 'is_error': False, 'content': 'Verified.'}]}},
-            {'type': 'result', 'result': 'Recovered.'}])
-        atticus.run('test', p)
-        self.assertTrue(atticus.run.ok)
-        self.assertEqual(atticus.run.cmds, [])
-
-    def test_failed_final_tool_cannot_be_reported_as_done(self):
-        p = unittest.mock.Mock()
-        p.stdin = io.StringIO(); p.ask = ''; p.returncode = 0
-        p.stdout = map(json.dumps, [
-            {'type': 'user', 'message': {'content': [{'type': 'tool_result', 'is_error': True, 'content': 'Image not found'}]}},
-            {'type': 'result', 'result': 'I sent the message.'}])
-        reply, _, _ = atticus.run('send the question', p)
-        self.assertFalse(atticus.run.ok)
-        self.assertIn('could not verify', reply)
-        self.assertNotIn('I sent', reply)
+        p.stdin.write.assert_not_called(); p.wait.assert_not_called()
 
     def test_cancellation_stops_descendant(self):
         with tempfile.TemporaryDirectory() as root:
@@ -232,26 +202,10 @@ atticus.main()
                 if p.poll() is None:
                     p.terminate(); p.wait(timeout=3)
 
-    def test_cli_stderr_cannot_block_the_stream(self):
-        with tempfile.TemporaryDirectory() as root:
-            script = Path(root) / 'claude.py'
-            script.write_text(f'import sys\nsys.stderr.write("x" * 1000000)\nprint(\'{json.dumps({"type": "result", "result": "Ready."})}\')\n')
-            fake = Path(root) / 'claude.cmd'
-            fake.write_text(f'@"{sys.executable}" "{script}"\r\n')
-            previous_handler = signal.getsignal(signal.SIGTERM)
-            try:
-                with patch.object(atticus.shutil, 'which', return_value=str(fake)), \
-                     patch.dict(os.environ, {'PATH': root + os.pathsep + os.environ['PATH'], 'ATTICUS_COMMIT': ''}), \
-                     patch.object(atticus, 'pref', side_effect=lambda k, d: False if k == 'safe' else d):
-                    p = atticus.start_claude()
-                    timer = threading.Timer(3, atticus.stop_claude, args=(p,))
-                    timer.start()
-                    try:
-                        self.assertEqual(atticus.run('test', p)[0], 'Ready.')
-                    finally:
-                        timer.cancel(); timer.join(); atticus.stop_claude(p); p.errors.close()
-            finally:
-                signal.signal(signal.SIGTERM, previous_handler)
+    def test_claude_launcher_is_unconditionally_disabled(self):
+        with patch.object(atticus.subprocess, 'Popen') as spawn, patch.object(atticus, 'pref', return_value=False):
+            self.assertIsNone(atticus.start_claude())
+            spawn.assert_not_called()
 
 
 class WatchAndBudgetTests(unittest.TestCase):
@@ -392,19 +346,12 @@ class WatchAndBudgetTests(unittest.TestCase):
         self.assertEqual(atticus.winctl.rect_for('right', area, (800, 600)), (-1280, 0, 1280, 1392))
         self.assertEqual(atticus.winctl.rect_for('center', area, (3000, 600)), (-2560, 396, 2560, 600))   # never wider than the screen
 
-    def test_set_flips_a_switch_by_name_safe_mode_only_on(self):
-        self.assertIn('askMe', atticus.switches())
-        self.assertNotIn('paused', atticus.switches())
-        with patch.dict(os.environ, {'ATTICUS_ASK': '/fake'}), patch.object(atticus, 'ask_user') as ask, patch('sys.stdout', new_callable=io.StringIO):
-            atticus.set_switch('safe mode', 'on')
-        self.assertEqual(ask.call_args.args[0], {'set': 'safe', 'value': True})
-        with patch.dict(os.environ, {'ATTICUS_ASK': '/fake'}), patch.object(atticus, 'ask_user') as ask, patch('sys.stdout', new_callable=io.StringIO):
-            atticus.set_switch('claude model', 'sonnet')   # a choice setting, by its option
-        self.assertEqual(ask.call_args.args[0], {'set': 'model', 'value': 'sonnet'})
-        for words, key in [('the asking setting', 'askMe'), ('read answers aloud', 'speak'), ('safe mode', None)]:
-            with patch.dict(os.environ, {'ATTICUS_ASK': '/fake'}), patch.object(atticus, 'ask_user') as ask, patch('sys.stdout', new_callable=io.StringIO):
-                atticus.set_switch(words, 'off')
-            self.assertEqual(ask.call_args.args[0] if ask.called else None, key and {'set': key, 'value': False})
+    def test_direct_set_helper_is_disabled_in_preview(self):
+        with patch('sys.argv', ['atticus.py', '--set', 'safe', 'off']), \
+             patch.object(atticus, 'set_switch') as change, patch('sys.stdout', new_callable=io.StringIO) as output:
+            atticus.main()
+        change.assert_not_called()
+        self.assertIn('unavailable', output.getvalue().lower())
 
     def test_unknown_command_never_shows_raw_shell(self):
         self.assertEqual(atticus.label('Bash', {'command': 'cat > /private/var/folders/x/prompt.txt <<EOF'}), 'Working on it')

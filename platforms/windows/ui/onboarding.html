@@ -124,14 +124,14 @@
 <section class="page" id="welcome">
   <div id="orbwrap" class="r"><canvas id="orb"></canvas></div>
   <h1 class="r">Meet ATLAS</h1>
-  <p class="sub r" id="welcome-talk">Hold the shortcut, say what you need, let go. Your PC does the rest.</p>
+  <p class="sub r" id="welcome-talk">Hold the shortcut, say what you need, let go. This preview supports limited local commands.</p>
   <div class="keys r"><div class="key" id="k1">Ctrl</div><div class="key" id="k2">Alt</div><div class="key wide" id="k3">Space</div></div>
   <button class="btn r" data-go="perms">Get Started</button>
 </section>
 
 <section class="page" id="perms">
   <h2 class="r">Give ATLAS a hand</h2>
-  <p class="sub r">Three things, once. You can change them any time in ATLAS Settings.</p>
+  <p class="sub r">Set up voice input. AI tasks are unavailable in this preview.</p>
   <div id="list" class="r"></div>
   <div id="count" class="r"></div>
   <button class="btn quiet r" id="next" data-go="try">Skip for Now</button>
@@ -139,7 +139,7 @@
 
 <section class="page" id="try">
   <h2 class="r">Try it now</h2>
-  <p class="sub r" id="try-talk">Hold the keys anywhere, say anything, then let go. Simple commands can run as you speak; AI actions wait for confirmed words.</p>
+  <p class="sub r" id="try-talk">Hold the keys anywhere, say anything, then let go. Local commands run after you finish speaking. AI tasks are unavailable.</p>
   <div class="keys big r"><div class="key" id="t1">Ctrl</div><div class="key" id="t2">Alt</div><div class="key wide" id="t3">Space</div></div>
   <div id="hint" class="r">Waiting for you…</div>
   <button class="btn quiet r" data-go="done">Skip</button>
@@ -150,10 +150,10 @@
   <h2 class="r">You’re all set</h2>
   <p class="sub r" id="practice-talk">Try a few. Hold the keys, say it, let go.</p>
   <div class="tries r">
-    <div class="try">“Open Chrome and snap it left”<span>Instant, no AI</span></div>
-    <div class="try">“Type a haiku about Mondays”<span>Click the box first</span></div>
+    <div class="try">“Open Chrome and snap it left”<span>Local command</span></div>
+    <div class="try">“Open Notepad”<span>Click the box first</span></div>
     <textarea id="pad" placeholder="Practice box" aria-label="Practice box"></textarea>
-    <div class="try">“Tell me when the timer is done”<button id="timer">Start a 20 s timer</button></div>
+    <div class="try">“Try a short timer”<button id="timer">Start a 20 s timer</button></div>
   </div>
   <div class="tips r"><div><kbd>esc</kbd> stops an answer</div><div>Click away to close</div></div>
   <button class="btn r" id="finish">Start Using ATLAS</button>
@@ -177,7 +177,6 @@
 
   // Permissions: icon color + SF-style glyph, why it's needed.
   const P = [
-    ['claude', 'Claude Plan', 'Checking your Claude sign-in…', '#d97757', '<path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/>'],
     ['mic', 'Microphone', 'Listens when you start a voice request.', '#ff9f0a', '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>'],
     ['speech', 'Speech Model', 'Turns your words into text on this PC. About 150 MB, once.', '#8e8e93', '<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/>'],
   ];
@@ -194,11 +193,10 @@
     post({ do: 'grant', id: b.dataset.id });
   });
 
-  let planOK = false, last = null;
   window.ob = {
     mode(toggle) {
-      $('welcome-talk').textContent = (toggle ? 'Press the shortcut, speak, press again to send.' : 'Hold the shortcut, speak, release to send.') + ' Your PC does the rest.';
-      $('try-talk').textContent = (toggle ? 'Press the shortcut anywhere. Say what you need, then press again to send.' : 'Hold the keys anywhere, say what you need, then let go.') + ' Simple commands can run as you speak; AI actions wait for confirmed words.';
+      $('welcome-talk').textContent = (toggle ? 'Press the shortcut, speak, press again to send.' : 'Hold the shortcut, speak, release to send.') + ' This preview supports limited local commands.';
+      $('try-talk').textContent = (toggle ? 'Press the shortcut anywhere. Say what you need, then press again to send.' : 'Hold the keys anywhere, say what you need, then let go.') + ' Local commands run after you finish speaking. AI tasks are unavailable.';
       $('practice-talk').textContent = toggle ? 'Try a few. Press to talk, press again to send. Esc cancels.' : 'Try a few. Hold the keys, say it, let go. Esc cancels.';
     },
     keys(ctrl, opt) {   // live modifier state, many times a second
@@ -217,14 +215,7 @@
       const row = $('p-' + id); if (!row) return;
       row.querySelector('.allow').textContent = Math.round(p * 100) + '%';
     },
-    plan(c) {   // Claude Code: installed, signed in, paid plan? The row says which, the button fixes it
-      planOK = !!c.ok;
-      $('p-claude').querySelector('.txt span').textContent = c.text;
-      $('p-claude').querySelector('.allow').textContent = { install: 'Install help', login: 'Sign-in help', upgrade: 'Upgrade' }[c.need] || 'Allow';
-      if (last) ob.set(last);
-    },
     set(s) {
-      last = s; s = { ...s, claude: planOK };
       let n = 0;
       for (const [id] of P) {
         const row = $('p-' + id);

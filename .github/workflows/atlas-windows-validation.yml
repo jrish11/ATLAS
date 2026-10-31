@@ -39,7 +39,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run Windows and isolated Codex regression tests
         run: |
-          foreach ($pattern in @('test_atticus.py', 'test_learning.py', 'test_skills_atomic.py', 'test_javascript.py', 'test_codex_account.py', 'test_atlas_codex_task.py', 'test_atlas_codex_provider.py', 'test_python_notices.py', 'test_dotnet_notices.py')) {
+          foreach ($pattern in @('test_atticus.py', 'test_learning.py', 'test_skills_atomic.py', 'test_javascript.py', 'test_codex_account.py', 'test_atlas_codex_task.py', 'test_atlas_codex_provider.py', 'test_python_notices.py', 'test_dotnet_notices.py', 'test_preview_privacy.py', 'test_preview_boundary.py')) {
             python -m unittest discover -s tests -p $pattern -v
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
@@ -63,6 +63,8 @@ jobs:
       - name: Test explicit setup helper without installs
         run: |
           python -m unittest discover -s ../../scripts/personal-release -p test_windows_first_run.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s ../../scripts/personal-release -p test_windows_external_stage.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Assemble external-Python candidate and verify relocation
         run: |

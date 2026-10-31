@@ -177,7 +177,6 @@ addEventListener('DOMContentLoaded', () => {
         if (b.TryGetProperty("allow", out var al) && askFile != "") { Answer(al.GetBoolean() ? "y" : "n"); }
         if (b.TryGetProperty("off", out var of) && of.GetString() is { Length: > 0 } k && k != "safe" && Prefs.Defaults.GetValueOrDefault(k) is bool)
         { Prefs.Set(k, false); Program.Settings.Push(); }   // "Turn off tips", "Don't ask again" on a card
-        if (b.TryGetProperty("improve", out var im)) { Prefs.Set("improve", im.GetBoolean()); Prefs.Set("improveAsked", true); Program.Settings.Push(); }
         if (b.TryGetProperty("comp", out _)) { }
     }
 
@@ -583,7 +582,6 @@ addEventListener('DOMContentLoaded', () => {
         }
         if (line == "! setup") { Program.Onboarding.Open(); return; }   // Claude not installed, signed out or no plan
         if (line.StartsWith("@ ")) { Ring.At(line); return; }   // experimental "show me where"
-        if (line == "! improve") { ShowBox(); js("improve"); return; }   // once, after a task that worked: Help improve Atticus?
         if (line.StartsWith("? "))   // safe mode: "? <question>\t<command>\t<answer file>[\t<setting it can turn off>[\tretry]]"
         {
             var q = line[2..].Split('\t');

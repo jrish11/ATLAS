@@ -25,31 +25,18 @@ class LearningTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def test_when_i_say_runs_now_and_saves_the_words_with_no_ai(self):
-        with patch.object(atticus, 'app_named', side_effect=lambda w: 'Notepad' if w == 'notepad' else None), \
-             patch.object(atticus, 'open_app', return_value=True) as opened, patch.object(atticus, 'tip') as tip:
-            self.assertEqual(atticus.fast('When I say writing time, open Notepad'), 'Opened Notepad.')
-        opened.assert_called_once_with('Notepad')
-        saved = atticus.skills()['writing time']
-        self.assertEqual(saved['cmds'], [f"{atticus.SHOW} Notepad"])
-        self.assertTrue(saved['mine'])   # the user's own words never expire
-        self.assertIn('Learned', tip.call_args.args[1])
-        with patch.object(atticus.subprocess, 'run', return_value=unittest.mock.Mock(returncode=0, stdout='opened Notepad in front', stderr='')) as replayed, \
-             patch.object(atticus, 'shim_env', return_value={}):
-            self.assertEqual(atticus.fast('Writing time.'), 'Opened Notepad.')
-        self.assertEqual(replayed.call_args.args[0][-1], f'{atticus.SHOW} Notepad')
+    def test_saved_alias_never_creates_or_executes_a_command(self):
+        with patch.object(atticus, 'open_app') as opened, patch.object(atticus.subprocess, 'run') as run:
+            self.assertIsNone(atticus.fast('When I say writing time, open Notepad'))
+            self.assertIsNone(atticus.replay('writing time'))
+            opened.assert_not_called(); run.assert_not_called()
+        self.assertEqual(atticus.skills(), {})
 
-    def test_learned_task_replays_in_any_order_and_for_another_app(self):
-        apps = {'notepad': 'Notepad', 'paint': 'Paint'}
-        with patch.object(atticus, 'app_named', side_effect=apps.get):
-            atticus.learn('put notepad on the left', [f'{atticus.PLACE} Notepad left current'], 'Notepad is on the left.')
-            self.assertEqual(atticus.like(atticus.gist('on the left put notepad'), atticus.skills()), ('put notepad on the left', None))
-            k, swap = atticus.like(atticus.gist('put paint on the left'), atticus.skills())
-            self.assertEqual((k, swap), ('put notepad on the left', ('Notepad', 'Paint')))
-            ok = unittest.mock.Mock(returncode=0, stdout='Paint window -> left of DELL', stderr='')
-            with patch.object(atticus.subprocess, 'run', return_value=ok) as run, patch.object(atticus, 'shim_env', return_value={}):
-                self.assertEqual(atticus.replay(k, swap), 'Paint is on the left.')
-            self.assertEqual(run.call_args.args[0][-1], f'{atticus.PLACE} Paint left current')
+    def test_learned_task_is_never_replayed(self):
+        atticus.learn('put notepad on the left', [f'{atticus.PLACE} Notepad left current'], 'Notepad is on the left.')
+        with patch.object(atticus.subprocess, 'run') as run:
+            self.assertIsNone(atticus.replay('put notepad on the left', ('Notepad', 'Paint')))
+            run.assert_not_called()
 
     def test_a_replay_step_that_says_it_failed_hands_over_to_the_ai(self):
         atticus.save_skills({'open budget': {'cmds': [f'{atticus.SHOW} budget.xlsx'], 'reply': 'Opened.', 'mine': True}})
@@ -91,7 +78,7 @@ class LearningTests(unittest.TestCase):
         self.assertEqual(atticus.workflows('open calendar'), '')
         for reply, ok, cmds in [('Done. [workflow a b | c]', False, ['x']), ('Could not do it. [workflow a b | c]', True, ['x']), ('Done. [workflow a b | c]', True, [])]:
             self.assertFalse(atticus.remember_workflow('a b', reply, ok, cmds)[1])
-        self.assertIn('saved the procedure', atticus.fast('remember how to create a calendar event'))
+        self.assertIsNone(atticus.fast('remember how to create a calendar event'))
         atticus.unlearn('make a new calendar event')   # "no, that's wrong" drops it, whatever the wording
         self.assertEqual(atticus.workflows('create calendar event'), '')
 
@@ -134,43 +121,20 @@ class LearningTests(unittest.TestCase):
             self.assertEqual(atticus.tool_help('open notepad and run where'), '')
         run.assert_not_called()
 
-    def test_failure_reports_need_a_key_and_a_yes_and_are_cleaned(self):
-        with patch.object(atticus, 'posthog') as send:
-            atticus.report('email sam@x.com', 'failed', [], 1, 'error')   # no key in this build
-            with patch.object(atticus, 'POSTHOG_KEY', 'k'):
-                atticus.report('x', 'failed', [], 1, 'error')   # the user hasn't said yes
-                with patch.object(atticus, 'pref', side_effect=lambda k, d: True if k == 'improve' else d):
-                    atticus.report('email sam@x.com about C:\\Users\\me\\taxes.pdf', 'failed', [f'{atticus.TYPE} --in Discord "hi Sam"'], 1, 'error')
-        send.assert_called_once()
-        props = send.call_args.args[1]
-        self.assertNotIn('sam@x.com', props['task']); self.assertNotIn('taxes', props['task']); self.assertNotIn('hi Sam', props['steps'][0])
+    def test_failure_reporting_remains_disabled_with_legacy_settings(self):
+        with patch.object(atticus, 'posthog') as send, patch.object(atticus, 'POSTHOG_KEY', 'legacy-key'), \
+             patch.object(atticus, 'pref', return_value=True):
+            atticus.report('private request', 'failed', ['private step'], 1, 'error')
+        send.assert_not_called()
 
-    def test_failed_task_offers_retry_and_sonnet_reruns_once(self):
-        for answer, model, expected in [('r', 'haiku', 'haiku'), ('y', 'haiku', 'sonnet'), ('', 'haiku', None)]:
-            with self.subTest(answer=answer):
-                def attempt(prompt, *args):
-                    brain.ok = brain.call_count > 1
-                    brain.cmds, brain.ran = [], ['step']
-                    return ('Finished.' if brain.ok else 'Fixture failed.'), .001, ['fixture step']
-                brain = unittest.mock.Mock(side_effect=attempt)
-                with patch.multiple(atticus, licensed=lambda: True, ping=lambda: None, fast=lambda _: None, front=lambda: ('Notepad', ''),
-                                    screens=lambda: [], describe=lambda *a: '', me_line=lambda: '', relevant_rules=lambda _: '', recent=lambda: [],
-                                    screen_for=lambda *a: None, wait_commit=lambda: True, run=brain, remember_turn=lambda *a: None,
-                                    restore_focus=lambda *a: None, tip=lambda *a: None, look=lambda: [], tool_help=lambda _: ''), \
-                     patch.object(atticus, 'pref', side_effect=lambda k, d: {'model': model}.get(k, d)), \
-                     patch.object(atticus, 'retry_offer', return_value=answer) as offer, patch.object(atticus, 'start_claude', return_value=object()) as start, \
-                     patch.object(atticus, 'log_turn') as log, patch.object(atticus.winctl, 'find', return_value=[]), \
-                     patch.object(atticus.integrations, 'mcp_for', return_value={}), patch.object(atticus.integrations, 'hints', return_value=''), \
-                     patch('sys.argv', ['atticus.py', 'Do fixture']), patch('sys.stdout', io.StringIO()):
-                    atticus.main()
-                offer.assert_called_once_with(True)   # on Haiku, the card offers Sonnet too
-                self.assertEqual(brain.call_count, 2 if expected else 1)
-                if expected:
-                    start.assert_called_once_with({}, expected)
-                    self.assertIn('A previous try failed: Fixture failed.', brain.call_args.args[0])
-                    self.assertEqual(log.call_args.args[3], .002)
-                else:
-                    start.assert_not_called()
+    def test_unknown_request_does_not_offer_model_retry(self):
+        with patch.multiple(atticus, fast=lambda _: None, wait_commit=lambda: True), \
+             patch.object(atticus, 'retry_offer') as offer, patch.object(atticus, 'start_claude') as start, \
+             patch.object(atticus, 'run') as run, patch('sys.argv', ['atticus.py', 'Do fixture']), \
+             patch('sys.stdout', io.StringIO()) as output:
+            atticus.main()
+        offer.assert_not_called(); start.assert_not_called(); run.assert_not_called()
+        self.assertIn('unavailable', output.getvalue().lower())
 
 
 if __name__ == '__main__':

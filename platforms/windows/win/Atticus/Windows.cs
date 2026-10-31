@@ -192,14 +192,13 @@ sealed class OnboardingWindow : PageWindow
         Raise();
         await Ensure();
         int tick = 0;
-        timer ??= new System.Windows.Forms.Timer { Interval = 50 };   // keys 20×/s, permissions 1×/s, Claude every 5 s
+        timer ??= new System.Windows.Forms.Timer { Interval = 50 };   // keys 20×/s, permissions 1×/s
         timer.Tick += (_, _) =>
         {
             if (!Visible) return;
             Js($"ob.keys({(Native.Down(Native.VK_CONTROL) ? "true" : "false")}, {(Native.Down(Native.VK_MENU) ? "true" : "false")})");
             tick++;
             if (tick % 20 == 1) Push();
-            if (tick % 100 == 1) CheckPlan();
         };
         timer.Start();
     }
@@ -212,23 +211,6 @@ sealed class OnboardingWindow : PageWindow
 
     public static Dictionary<string, bool> Perms() => new() { ["mic"] = Speech.MicAllowed(), ["speech"] = File.Exists(Paths.Model) };
 
-    // Claude Code installed, signed in, on a paid plan? (atticus.py --check)
-    public static JsonElement Plan()
-    {
-        var s = Py.Run(new[] { "--check" }, 30);
-        try { return JsonDocument.Parse(s).RootElement.Clone(); }
-        catch { return JsonDocument.Parse("{\"ok\":false,\"need\":\"install\",\"text\":\"Could not run the ATLAS helper. Check the Python environment and rebuild with build-atlas.ps1.\"}").RootElement.Clone(); }
-    }
-
-    void CheckPlan() => Task.Run(() => { var c = Plan(); Program.Post(() => Js($"ob.plan({c.GetRawText()})")); });
-
-    // Open official instructions; installation and sign-in are performed by the user.
-    void FixPlan() => Task.Run(() =>
-    {
-        var need = Plan().TryGetProperty("need", out var n) ? n.GetString() : "";
-        Web.Open(need == "upgrade" ? "https://claude.ai/upgrade" : "https://code.claude.com/docs/en/setup");
-    });
-
     public void Tried() => Js("ob.tried()");
 
     public void Grant(string id)
@@ -236,7 +218,6 @@ sealed class OnboardingWindow : PageWindow
         switch (id)
         {
             case "mic": Web.Open("ms-settings:privacy-microphone"); break;
-            case "claude": FixPlan(); break;
             case "speech": GetModel(); break;
         }
     }

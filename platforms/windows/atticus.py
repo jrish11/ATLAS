@@ -59,8 +59,8 @@ integrations.CONFIG = os.path.join(DIR, 'integrations.json')
 GUMROAD_PRODUCT = ''   # Gumroad product ID; empty = free
 BUY = 'https://3370759087892.gumroad.com/l/atticus'
 KEY_FILE = os.path.join(DIR, 'license')
-# Daily-user count: once a day, a random ID (no name, no asks) goes to PostHog. Off in Settings → Safety. Empty key = off.
-POSTHOG_KEY = os.environ.get('ATTICUS_POSTHOG_KEY', '')   # optional; no embedded API keys
+# The Windows preview has no upstream telemetry.
+POSTHOG_KEY = ''   # Telemetry is disabled even if a key is inherited.
 
 
 # About the user: name, one line they wrote, up to 8 short facts Atticus picked up. Capped at 300 characters
@@ -713,25 +713,9 @@ def swapped(cmds, old, new):
 
 
 def replay(k, swap=None):
+    """Stored shell shortcuts are disabled in the Windows preview."""
     replay.ran = []
-    s = skills().get(k)
-    commands = shortcut_commands(k, swapped(s['cmds'], *swap) if swap else s['cmds']) if s else None
-    if not commands:
-        return None
-    if pref('safe', True) and any(risky(c) for c in commands):
-        return None   # the AI's tool gate can show the Allow card; direct replay cannot
-    for c in commands:   # any failure: hand it to the AI instead
-        began = time.time()
-        try:
-            r = subprocess.run([winctl.bash(), '-c', c], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=20, env=shim_env())
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        replay.ran.append(f'{c[:200]}  => {(r.stdout.strip() or r.stderr.strip() or "exit " + str(r.returncode))[:200]} ({time.time() - began:.1f}s)')   # what each step said, and how long
-        if r.returncode or FAILED.search(r.stdout) or 'no window found' in r.stdout:
-            return None   # a step that says it failed is a failure: the AI takes over
-    if s.get('used') != time.strftime('%Y-%m-%d'):   # used today: the 30-day clock starts again
-        sk = skills(); sk[k]['used'] = time.strftime('%Y-%m-%d'); save_skills(sk)
-    return s['reply'].replace(*swap) if swap else s['reply']
+    return None
 
 
 def workflows(task=None, method=''):
@@ -809,38 +793,15 @@ def failed_move(out):
 
 
 def fast(text):
-    """Simple commands with no AI: learned shortcuts, open <app/site>, snap/move <it/app> left/right/full/center, to laptop/monitor.
-    Returns a reply, or None to hand the request to Haiku. fast.cmds: the commands that did it, so "When I say X, …" can save them."""
+    """Run supported deterministic local commands only after confirmation.
+    Stored shortcuts and model handoff are disabled in this preview."""
     fast.cmds = []
-    named = NAMED.match(text.strip())
-    if named and pref('learn', True):   # "When I say work mode, open Spotify": do it now, no AI, and save the words
-        if os.environ.get('ATTICUS_LIVE') == '1': return None
-        name, action = (named[1] or named[2]).strip(), text[named.end():].strip(' ,:;')
-        if NAMED.match(action): return None
-        reply = action and fast(action)
-        if reply and learn(name, fast.cmds, reply) is not None:
-            sk = skills(); sk[plain(name)]['mine'] = True; save_skills(sk)
-            tip(reply, f'Learned: say “{name}” any time.')
-            return reply
-        return None
+    # Never dispatch from partial speech or infer authority from saved commands.
+    if os.environ.get('ATTICUS_LIVE') == '1': return None
+    if NAMED.match(text.strip()): return None
     t = plain(text)
-    m = re.fullmatch(r'remember how to (.+?)(?: for (?:the )?future)?', t)
-    if m and pref('learn', True):
-        if os.environ.get('ATTICUS_LIVE') == '1':
-            return None
-        return ('I have saved the procedure for next time.' if workflows(m[1]) or any(gist(k) == gist(m[1]) for k in skills()) else
-                'I do not have a verified procedure for that yet. Complete the task successfully first so I can save it.')
     if t in ('no', 'yes', 'ok', 'okay', 'nevermind', 'never mind', 'cancel', 'nothing', 'thanks', 'thank you'):
-        return 'Okay.'   # stray word after a turn: no AI call
-    sk, g = (skills() if pref('learn', True) else {}), gist(t)
-    k, swap = (t, None) if t in sk else (None, None) if DEICTIC.search(t) or not g else like(g, sk)   # same words that matter, any order or filler, or another app
-    if k:
-        if os.environ.get('ATTICUS_LIVE') == '1':
-            return None   # even a shortcut named "open Spotify" waits for confirmed words
-        r = replay(k, swap)
-        if r:
-            fast.cmds = sk[k]['cmds']
-            return r
+        return 'Okay.'
     m = re.fullmatch(r'(?:search(?: up)?|google|look up)(?: (?:on |in )?(google|youtube|spotify|amazon|the web|online))?(?: for)? (.+?)(?: (?:on|in) (google|chrome|edge|youtube|spotify|amazon|the web))?', t)
     if m and MORE.search(m[2]): m = None   # "search amazon for X and find the best one" is two steps: the AI does both
     if m and not re.search(r'\b(this|that|it|these|my)\b', m[2]) and not re.search(r'\b(for|on|in|the|a|an|and|to|of|some)$', m[2]):   # "search this" needs the screen; "search amazon for" was cut off mid-sentence: AI
@@ -1135,28 +1096,13 @@ def activate(key):
 
 
 def posthog(event, props=None, stamp=()):
-    """One anonymous event (a random ID, no person profile), sent on its own thread so it never slows the answer.
-    stamp: (text, file) written once it is sent."""
-    idf = os.path.join(DIR, 'id')
-    if not os.path.exists(idf):
-        os.makedirs(DIR, exist_ok=True)
-        open(idf, 'w').write(base64.b32encode(os.urandom(10)).decode())
-    body = json.dumps({'api_key': POSTHOG_KEY, 'event': event, 'distinct_id': open(idf).read(), 'properties': {'$process_person_profile': False, **(props or {})}}).encode()
-    def send():
-        try:
-            urllib.request.urlopen(urllib.request.Request('https://us.i.posthog.com/i/v0/e/', body, {'Content-Type': 'application/json'}), timeout=10).read()
-            if stamp: open(stamp[1], 'w').write(stamp[0])
-        except Exception:
-            pass
-    t = threading.Thread(target=send)   # not a daemon: the process waits up to 10 s for it after the answer is out
-    t.start()
+    """Telemetry is disabled in ATLAS."""
+    return None
 
 
 def ping():
-    day, stamp = time.strftime('%Y-%m-%d'), os.path.join(DIR, 'pinged')
-    if not POSTHOG_KEY or not pref('stats', True) or (os.path.exists(stamp) and open(stamp).read() == day):
-        return
-    posthog('used', stamp=(day, stamp))
+    """Telemetry is disabled in ATLAS."""
+    return None
 
 
 def clean(text):
@@ -1172,11 +1118,8 @@ def clean(text):
 
 
 def report(task, reply, ran, secs, why):
-    """Settings → Help improve Atticus (off until the user says yes): a task that failed goes to the maker, cleaned.
-    Only when this build has a PostHog key (ATTICUS_POSTHOG_KEY); none is built in."""
-    if POSTHOG_KEY and pref('improve', False) and os.environ.get('ATTICUS_LIVE') != '1':
-        posthog('task_failed', {'task': clean(task), 'reply': clean(reply), 'steps': [clean(c) for c in list(ran)[:12]], 'why': why,
-                                'secs': round(secs, 1), 'model': pref('model', 'haiku'), 'windows': platform.version()})
+    """Failure reporting is disabled in ATLAS."""
+    return None
 
 
 def say(tag, text):
@@ -1209,41 +1152,13 @@ MISS = 'Saying the same thing more than once? Tell Atticus how you want it done.
 
 
 def tip(reply, taught='', task='', elapsed=0):
-    """One small tip under the answer ("i <tip>"). After a miss or a redo: how to teach it (the AI's own words if it gave some),
-    every time; slow successful tasks get a memory hint; otherwise a general tip at most every 6 h. Off in Settings."""
-    if not pref('tips', True) or os.environ.get('ATTICUS_UI') != '1':
-        return
-    if taught or FAILED.search(reply):
-        return say('i', taught or MISS)
-    if elapsed >= 15 and task and not re.search(r'(?i)\bremember\b', task):
-        return say('i', 'For next time, say "remember how to ' + task.strip().rstrip('.?!')[:180] + '".')
-    stamp = os.path.join(DIR, 'tip')
-    if not os.path.exists(stamp):   # never on the very first ask
-        return open(stamp, 'w').write('0')
-    n = int(open(stamp).read() or 0)
-    if time.time() - os.path.getmtime(stamp) < 6 * 3600:
-        return
-    open(stamp, 'w').write(str(n + 1))
-    say('i', TIPS[n % len(TIPS)])
+    """Proactive tips and suggestions are disabled in ATLAS."""
+    return None
 
 
 def plan():
-    """Can Atticus think? Claude Code must be installed and signed in to a paid Claude plan (or an API key).
-    -> {'ok': bool, 'need': '' | 'install' | 'login' | 'upgrade', 'text': one line for the user}"""
-    try:
-        s = json.loads(subprocess.run(['claude', 'auth', 'status'], capture_output=True, text=True, timeout=20).stdout)
-    except FileNotFoundError:
-        return {'ok': False, 'need': 'install', 'text': 'Claude Code is not installed.'}
-    except (ValueError, subprocess.TimeoutExpired):
-        return {'ok': False, 'need': 'login', 'text': 'Could not read your Claude sign-in.'}
-    if not s.get('loggedIn'):
-        return {'ok': False, 'need': 'login', 'text': 'Sign in to Claude to start.'}
-    if s.get('authMethod') != 'claude.ai':
-        return {'ok': True, 'need': '', 'text': 'Using your Anthropic API key (billed per use).'}
-    sub = (s.get('subscriptionType') or '').lower()
-    if sub in ('', 'free'):
-        return {'ok': False, 'need': 'upgrade', 'text': 'Atticus needs a paid Claude plan (Pro or Max).'}
-    return {'ok': True, 'need': '', 'text': f'Using your Claude {sub.title()} plan.'}
+    """AI providers are unavailable in the limited Windows preview."""
+    return {'ok': False, 'need': 'disabled', 'text': 'AI tasks are unavailable in this preview.'}
 
 
 def stop_claude(p):
@@ -1280,35 +1195,8 @@ def shim_env():
 
 
 def start_claude(mcp=None, model=None):
-    """`claude -p` started ahead, waiting for the request on stdin: its ~1 s startup happens while the user is still talking.
-    mcp: {name: server config} for integrations served over MCP (only when the request is about them). model: this run only (Try Sonnet)."""
-    claude = shutil.which('claude')
-    if not claude:
-        return None
-    system = SYSTEM.replace('NEVER_RISKY', ASK_FIRST if pref('safe', True) else NEVER) + (ASK_ME if pref('askMe', True) else '') + (POINTER if pref('pointer', False) else '') + (LEARN_ME if pref('learnMe', True) else '') + (TEACH if pref('tips', True) else '') + (WORKFLOW if pref('learn', True) else '') + (JOPLIN_TOOLS if winctl and winctl._joplin_settings().get('api.token') else '')
-    settings = {}
-    ask = tempfile.mkdtemp(prefix='atticus-ask-')   # the Allow card (safe mode) and the choices card talk through it
-    atexit.register(shutil.rmtree, ask, True)   # however this run ends
-    if pref('safe', True) or os.environ.get('ATTICUS_COMMIT'):   # no sandbox on Windows: the gate is the whole of safe mode
-        gate_cmd = f'"{sys.executable.replace(os.sep, "/")}" "{SELF.replace(os.sep, "/")}" --gate'
-        settings['hooks'] = {'PreToolUse': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': gate_cmd, 'timeout': 140}]}]}
-    errors = tempfile.TemporaryFile(mode='w+', encoding='utf-8', errors='replace')   # draining a pipe only after wait() can deadlock
-    # The prompt and settings go in files: an npm-installed claude.cmd runs through cmd.exe, which cuts command lines at 8 KB.
-    sp, st, mp = os.path.join(ask, 'system.md'), os.path.join(ask, 'settings.json'), os.path.join(ask, 'mcp.json')
-    open(sp, 'w', encoding='utf-8').write(system)
-    json.dump(settings, open(st, 'w', encoding='utf-8'))
-    if mcp:   # holds a token: it lives in this run's private temp folder, removed when the run ends
-        json.dump({'mcpServers': mcp}, open(mp, 'w', encoding='utf-8'))
-    p = subprocess.Popen([claude, '-p', '--input-format', 'stream-json', '--model', model or pref('model', 'haiku'), '--effort', 'low', '--system-prompt-file', sp,
-                          '--tools', 'Bash,Read,WebSearch,WebFetch', '--permission-mode', 'bypassPermissions', '--disallowedTools', *DENY, '--settings', st,
-                          '--setting-sources', '', '--no-session-persistence', '--strict-mcp-config', *(['--mcp-config', mp] if mcp else []), '--disable-slash-commands', '--output-format', 'stream-json', '--verbose'],
-                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, text=True, encoding='utf-8', errors='replace', cwd=tempfile.gettempdir(),
-                         env={**shim_env(), 'ATTICUS_ASK': ask})
-    p.ask, p.errors = ask, errors
-    atexit.register(errors.close)
-    atexit.register(stop_claude, p)
-    signal.signal(signal.SIGTERM, lambda *_: (stop_claude(p), stop_workers()))
-    return p
+    """Claude dispatch is disabled pending a verified native approval boundary."""
+    return None
 
 
 def relay(p):
@@ -1341,59 +1229,10 @@ def relay(p):
 
 
 def run(task, p=None, shots=()):
-    """One request through `claude -p --model haiku` (the user's plan), streaming notes and steps. shots: [(path, label)] sent with it."""
+    """All model-driven dispatch is disabled in the Windows preview."""
     run.cmds = run.ran = []
     run.ok = False
-    p = p or start_claude()
-    if not p:
-        say('!', 'setup')   # Atticus.app opens its setup window
-        return plan()['text'] + ' Atticus setup is open to fix it.', 0, []
-    content = [b for path, label in shots if os.path.exists(path) for b in ({'type': 'text', 'text': label}, {'type': 'image', 'source': {
-        'type': 'base64', 'media_type': 'image/jpeg', 'data': base64.b64encode(open(path, 'rb').read()).decode()}})] + [{'type': 'text', 'text': task}]
-    p.stdin.write(json.dumps({'type': 'user', 'message': {'role': 'user', 'content': content}}) + '\n')
-    p.stdin.close()
-    if getattr(p, 'ask', ''):
-        threading.Thread(target=relay, args=(p,), daemon=True).start()
-    reply, cost, steps, cmds, last_failed, completed, result_error, ids, bad = '', 0, [], [], False, False, False, {}, set()
-    for line in p.stdout:
-        try:
-            j = json.loads(line)
-        except ValueError:
-            continue
-        if j.get('type') == 'assistant':
-            blocks = j['message'].get('content', [])
-            if any(b.get('type') == 'tool_use' for b in blocks):   # notes before a tool call; the final text comes as result
-                for b in blocks:
-                    if b.get('type') == 'text' and b['text'].strip():
-                        say('·', b['text'])
-                    elif b.get('type') == 'tool_use':
-                        steps.append(label(b['name'], b.get('input', {})))
-                        say('▸', steps[-1])
-                        ids[b.get('id')] = len(cmds)
-                        cmds.append(b.get('input', {}).get('command') or f"<{b['name']}>")   # non-Bash tools block learning
-        elif j.get('type') == 'user':   # tool results
-            results = [b for b in j.get('message', {}).get('content', []) if isinstance(b, dict) and b.get('type') == 'tool_result']
-            if results:
-                last_failed = any(b.get('is_error') for b in results)
-                bad |= {ids.get(b.get('tool_use_id')) for b in results if b.get('is_error')}
-        elif j.get('type') == 'result':
-            completed = True
-            result_error = bool(j.get('is_error'))
-            reply, cost = (j.get('result') or '').strip(), j.get('total_cost_usd', 0)
-    p.wait()
-    run.ran = cmds   # the exact commands, for the ask log
-    if not reply and p.returncode:
-        c = plan()   # the usual cause: not installed, signed out, or no paid plan
-        if not c['ok']:
-            say('!', 'setup')
-        p.errors.seek(0)
-        reply = c['text'] + ' Atticus setup is open to fix it.' if not c['ok'] else f'Claude failed: {p.errors.read(200)}'
-    # a step that failed and was then done another way is dropped, so the way that worked can still be learned
-    run.cmds = [] if last_failed or result_error or p.returncode or not completed or not reply else [c for i, c in enumerate(cmds) if i not in bad]
-    run.ok = bool(completed and reply and not result_error and not p.returncode and not last_failed)
-    if last_failed and not result_error and not p.returncode:
-        reply = 'The last tool failed, so I could not verify that the request was completed. Please try again.'
-    return reply or 'No answer came back. Please try again.', cost, steps
+    return 'AI tasks are unavailable in this limited Windows preview.', 0, []
 
 
 def screen_for(task, snap, fx=None):   # snap.shots: what look() returned; fx: x of the front window
@@ -1564,6 +1403,12 @@ def retry_offer(sonnet):
 
 def main():
     args = sys.argv[1:]
+    # Only local settings and confirmed deterministic requests are exposed.
+    allowed = {'--wait', '--fast', '--state', '--check', '--codex-ready', '--me', '--forget', '--remember', '--unlearn', '--help', '-h'}
+    if args and args[0].startswith('-') and args[0] not in allowed:
+        return print('Unavailable in this limited Windows preview.')
+    if args[:1] == ['--fast'] and os.environ.get('ATTICUS_LIVE') == '1':
+        return sys.exit(1)
     if args == ['--wait'] or args[:1] == ['--fast']:
         signal.signal(signal.SIGTERM, stop_workers)   # Atticus.exe also ends the whole tree (a job object)
     if args[:1] == ['--watch'] and (len(args) in (5, 6) and args[3] in ('gone', 'shows') or len(args) in (3, 4) and args[1] == 'cmd'):
@@ -1751,123 +1596,19 @@ def main():
         return print(__doc__.strip() if args[0] in ('--help', '-h') else f'unknown option {args[0]}. ' + __doc__.strip())   # never an AI ask: the AI's own `atticus --help` must not start another one
     if os.environ.get('ATTICUS_ASK') and args != ['--wait']:   # inside an AI run (its helpers carry ATTICUS_ASK): never start another one
         return print('Atticus helpers only here; a request cannot start another request. Run one of: ' + ', '.join(sorted({c.split()[1] for c in QUIET if c.startswith(ME + ' ')})))
-    warm = start_claude() if args == ['--wait'] and pref('provider', 'claude') != 'codex' else None   # Atticus.app: started at key-down, request comes on stdin at release
-    shots = []
-    snap = threading.Thread(target=lambda: shots.extend(look()), daemon=True)   # the screen as the user pressed the keys; sent only if the words are about it
-    snap.shots = shots
-    atexit.register(lambda: [os.remove(p) for p, _ in shots if os.path.exists(p)])   # private: no screenshot left in Temp
-    snap.start()
-    if args == ['--wait']:   # "<app the user is in now>\t<request>", even if Claude could not start
+    if args == ['--wait']:
         front_now, _, task = sys.stdin.readline().strip().rpartition('\t')
         os.environ['ATTICUS_FRONT'] = front_now or os.environ.get('ATTICUS_FRONT', '')
-    task = task if args == ['--wait'] else ' '.join(a for a in args if a != '--plan') or ask()
-    if not task:
-        return warm and stop_claude(warm)
-    if pref('provider', 'claude') == 'codex':
-        # An explicit Codex selection must never silently fall back to Claude.
-        if not wait_commit(): return
-        from atlas_codex_task import run_task
-        def codex_event(event):
-            if event.get('type') == 'text': say('▸', event.get('text', ''))
-            elif event.get('type') == 'approval_denied': say('▸', 'Codex requested an action; permission was not granted.')
-        result = run_task(task, pref('codexWorkspace', ''), codex_event, cancel_path=os.environ.get('ATLAS_CANCEL_FILE'))
-        return say('✓' if result['status'] == 'done' else '!', result['result'])
-    ping()
-    key = re.fullmatch(r'\W*(?:my )?(?:license )?key\W+([\w-]{8,})\W*', task, re.I)
-    if key or not licensed():
-        if not wait_commit():
-            return
-        if warm:
-            stop_claude(warm)
-        if key:
-            return say('✓', activate(key[1]))
-        os.startfile(BUY)
-        return say('✓', f'Atticus is $5, once. Buy a key on the page that just opened, then type: key <your key>')
-    t = time.time()
-    commit = os.environ.get('ATTICUS_COMMIT')
-    quick = (not commit or os.path.exists(commit)) and pref('instant', True) and fast(task)
-    if quick:
-        if warm:
-            stop_claude(warm)
-        remember_turn(task, quick)
-        log_turn(task, quick, t)
-        return say('✓', quick)
-    app, win = front()   # before anything else takes focus, so "this window" still means the user's window
-    ws = winctl.find(app) if app else []
-    fx = winctl.frame(ws[0]['hwnd'])[0] + 50 if ws else None
-    scr = describe(screens(), fx)
-    url = winctl.browser_url(ws[0]['hwnd']) if ws and app in winctl.BROWSERS else ''   # "articles on what I'm reading" needs the page
-    you = me_line()
-    ctx = (f'About the user: {you} ' if you else '') + f'Front app: {app}. Front window: {win or "?"}.' + (f' Page: {url}.' if url else '') + f' Screens: {scr}. Now: {time.strftime("%a %b %d %Y %I:%M %p")}.'
-    helps = []
-    helping = threading.Thread(target=lambda: helps.append(tool_help(task)), daemon=True)
-    helping.start()   # beside the screen reads: a cold --help can take up to 2 s
-    mem = relevant_rules(task)
-    procedure = workflows(task) if pref('learn', True) else ''
-    int_hints = integrations.hints(task, INT)
-    servers = integrations.mcp_for(task)
-    if servers:   # the warm Claude started before the words were known, without MCP: start one that has them
-        if warm:
-            stop_claude(warm)
-        warm = start_claude(servers)
-    turns = recent()
-    turns = [r for r in turns if time.time() - r['t'] < 600][-3:]   # this chat only (Atticus.app clears it for a new one); 10 min cap for typed asks
-    earlier = earlier_chat(turns)
-    images = screen_for(task, snap, fx)
-    if images == []:
-        ctx += ' Screen capture unavailable. Do not guess screen contents; explain how to enable Screen Recording for Atticus.'
-    helping.join(4)
-    prompt = (f'Context: {ctx}\n' + (f'Earlier:\n{earlier}' if earlier else '') + (f'Memory:\n{mem}\n' if mem else '') +
-              (f'Integrations:\n{int_hints}\n' if int_hints else '') + ''.join(helps) +
-              (f'Saved workflow (historical guidance):\n{procedure}\n' if procedure else '') + f'Request: {task}')
-    reply, cost, steps = run(prompt, warm, images or ())
-    if not wait_commit():
-        return
-    if not run.ok:   # Try again (same model) or Try Sonnet, from a card in the box
-        model = pref('model', 'haiku')
-        sonnet = pref('escalate', True) and model == 'haiku'
-        answer = 'y' if sonnet and pref('escalateAuto', False) else retry_offer(sonnet)
-        if answer in ('r', 'y'):
-            next_model = model if answer == 'r' else 'sonnet'
-            say('▸', 'Trying again with ' + next_model.capitalize())
-            previous = run.ran[:]
-            context = '\nPrior attempted actions (check their effects before repeating):\n' + '\n'.join(previous)[-1800:] if previous else ''
-            again, more, extra = run(prompt + f'\nA previous try failed: {reply[:400]}' + context, start_claude(servers, next_model), images or ())
-            run.ran = previous + run.ran
-            reply, cost, steps = again or reply, cost + more, steps + extra
-    reply = point(re.sub(r'\s*\n\s*Sources?:.*\Z', '', reply, flags=re.S | re.I))
-    taught = re.search(r'\[tip ([^\]]+)\]', reply)
-    reply = (reply[:taught.start()] + reply[taught.end():]).strip() if taught else reply
-    fix = turns and re.match(r"(no|nope|not that|wrong|that's wrong|i meant|i said)\b", plain(task))
-    if fix:
-        unlearn(turns[-1]['q'])   # a learned shortcut that did the wrong thing goes
-    if procedure and not run.ok:
-        workflows(task, None)
-    reply, workflow = remember_workflow(task, reply, run.ok, run.ran)   # ran: a retried step that then worked still counts
-    named, shortcut = NAMED.match(task.strip()), ''
-    if named and run.ok and run.cmds and (learn(named[1] or named[2], run.cmds, reply) is not None or plain(named[1] or named[2]) in skills() and any(plain(n) == plain(named[1] or named[2]) for c in run.cmds for n in re.findall(r'--shortcut\s+["\']([^"\']+)', c))):   # "When I say work mode, …": the words become the shortcut, even if the AI forgot --shortcut
-        sk = skills(); sk[plain(named[1] or named[2])]['mine'] = True; save_skills(sk); workflow = True; shortcut = (named[1] or named[2]).strip()
-    if pref('learn', True):
-        workflow = learn(task, run.cmds, reply) or workflow
-        if fix:
-            learn(turns[-1]['q'], run.cmds, reply)   # and the fix becomes the shortcut for the original words
-    if fix and turns: report(turns[-1]['q'], turns[-1]['a'], (), 0, 'the user said it was wrong')
-    if not run.ok or FAILED.search(reply): report(task, reply, run.ran, time.time() - t, 'error' if not run.ok else 'could not do it')
-    remember_turn(task, reply)
-    log_turn(task, reply, t, cost, steps, run.ran, len(images or ()))
-    # clicks inside an app pull it forward; give the user back the app the user was in unless the user asked to go somewhere
-    restore_focus(app, task, run.ran)
-    say('✓' if run.ok else '!', reply)
-    learned = [r for c in run.ran for r in re.findall(r'--remember\s+["\']([^"\']+)', c)]   # it taught itself: say so, so the user sees it improve
-    # "When I say focus mode, …" saved: a green Learned pill, like a remembered rule
-    tip(reply, f'Learned: say “{shortcut}” any time.' if shortcut else 'Saved the procedure for next time.' if workflow else f'Learned: {learned[-1]}' if learned else taught[1].strip() if taught else '',
-        task, time.time() - t)
-    asked = os.path.join(DIR, 'improve-asked')   # people who updated never saw setup's question: ask once a day after a task that worked, until they answer
-    if run.ok and not FAILED.search(reply) and POSTHOG_KEY and not pref('improveAsked', False) and os.environ.get('ATTICUS_UI') == '1' \
-            and not (os.path.exists(asked) and open(asked).read() == time.strftime('%Y-%m-%d')):
-        open(asked, 'w').write(time.strftime('%Y-%m-%d')); say('!', 'improve')
-    if os.environ.get('ATTICUS_UI') != '1':   # typed from the menu bar: no overlay, so a notification
-        notify(reply)
+    else:
+        task = ' '.join(args) or ask()
+    if not task or not wait_commit(): return
+    started = time.time()
+    result = fast(task) if pref('instant', True) else None
+    if result:
+        remember_turn(task, result)
+        log_turn(task, result, started)
+        return say('✓', result)
+    return say('!', 'AI tasks and saved shell shortcuts are unavailable in this limited Windows preview.')
 
 
 if __name__ == '__main__':
