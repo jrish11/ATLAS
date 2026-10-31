@@ -116,6 +116,17 @@ for (const [label, keys] of Object.entries(want)) if (JSON.stringify(capsOf(labe
         self.assertIn('if need.isEmpty, c["ok"] as? Bool == false { Atticus.settings.open(); return }', fix)
         self.assertLess(fix.index('if need.isEmpty'), fix.index('let cmd ='))
 
+    def test_development_pi_setup_uses_confirmed_bundled_runtime(self):
+        swift = (ROOT / 'Atticus.swift').read_text()
+        fix = swift.split('    func fixPlan() {', 1)[1].split('    func tried()', 1)[0]
+        self.assertIn('if pi && Bundle.main.bundleIdentifier == "com.atticus.personal.dev"', fix)
+        self.assertLess(fix.index('openPiRuntimeSetup()'), fix.index('let cmd ='))
+        setup = swift.split('func openPiRuntimeSetup()', 1)[1].split('// First-run window', 1)[0]
+        self.assertIn('alert.runModal() == .alertFirstButtonReturn', setup)
+        self.assertIn('Setup/Setup.command', setup)
+        self.assertIn('this limited build does not verify general Mac control', self.page)
+        self.assertIn("provider === 'pi' || !left", self.page)
+
     def test_setup_checks_one_provider_process_at_a_time(self):
         swift = (ROOT / 'Atticus.swift').read_text()
         check = swift.split('    func checkPlan() {', 1)[1].split('\n    }', 1)[0]

@@ -3,6 +3,7 @@
 // then Atticus's notes and steps while `atticus.py` works, then the answer. It never takes focus.
 // Build: ./build.sh. Kept running by ~/Library/LaunchAgents/com.atticus.app.plist
 import Cocoa
+import Darwin
 import Carbon
 import AVFoundation
 import Speech
@@ -2545,6 +2546,21 @@ final class App: NSObject, WKScriptMessageHandler {
     }
     var text = "", answer = "", busy = false, speechFailed = false, gen = 0
     var foregroundHistory: [[String:String]] = []; var foregroundPending: String?
+    private var foregroundContextConsent: [String:Any]? = nil
+    private var foregroundContextSettingsStamp: String? = nil
+    func clearForegroundContextConsent() { foregroundContextConsent=nil;foregroundContextSettingsStamp=nil }
+    func foregroundSettingsStamp() -> String? {
+        guard let a=try? FileManager.default.attributesOfItem(atPath:Prefs.path),let inode=a[.systemFileNumber] as? NSNumber,let size=a[.size] as? NSNumber,let modified=a[.modificationDate] as? Date else { return nil }
+        return "\(inode):\(size):\(modified.timeIntervalSince1970)"
+    }
+    func setForegroundContextConsent(_ grant:[String:Any]) -> Bool {
+        guard let stamp=foregroundSettingsStamp() else { clearForegroundContextConsent();return false }
+        foregroundContextSettingsStamp=stamp;foregroundContextConsent=grant;return true
+    }
+    func currentForegroundContextConsent() -> [String:Any]? {
+        guard let consent=foregroundContextConsent,let stamp=foregroundContextSettingsStamp,foregroundSettingsStamp()==stamp else { clearForegroundContextConsent();return nil }
+        return consent
+    }
     var agentCard = ""   // the hand-off or done card on screen: Esc picks its quiet choice
     var replyAgent = ""   // the agent whose done card was up when this ask began: talking clears the card, so it is kept here
     var showAgent = ""   // the task this ask showed (--agent-show): its work comes up when the ask ends
@@ -4280,6 +4296,7 @@ final class App: NSObject, WKScriptMessageHandler {
         }
         do {
             var request: [String:Any] = ["front":mine, "task":t]
+            if let consent=currentForegroundContextConsent() { request["foregroundContextConsent"]=consent }
             if foregroundPending != nil && !foregroundHistory.isEmpty { request["history"] = foregroundHistory }
             if let remaining { request["remaining"] = remaining; request["done"] = did }
             if let point { request["point"] = point }
@@ -4987,6 +5004,10 @@ final class Onboarding: NSObject, WKScriptMessageHandler, NSWindowDelegate {
             let need = c["need"] as? String ?? ""
             let devin = (c["client"] as? String) == "devin", pi = (c["client"] as? String) == "pi", server = (c["client"] as? String) == "server"
             if need.isEmpty, c["ok"] as? Bool == false { Atticus.settings.open(); return }
+            if pi && Bundle.main.bundleIdentifier == "com.atticus.personal.dev" {
+                if need == "install" { openPiRuntimeSetup() } else { Atticus.settings.open(tab:"intelligence") }
+                return
+            }
             if need == "upgrade" { NSWorkspace.shared.open(URL(string: "https://claude.ai/upgrade")!); return }
             let cmd = need == "install"
                 ? devin ? "curl -fsSL https://cli.devin.ai/install.sh | bash && devin auth login"
@@ -5783,9 +5804,61 @@ enum Apps {
     }
 }
 
+// Owner-activated in-memory scope. All reads use directory-relative, no-follow
+// descriptors; contents stay in the local Settings view and never enter prompts.
+final class LocalFolderReadScope {
+    let path:String,device:UInt64,inode:UInt64
+    init?(path:String,device:UInt64,inode:UInt64) {
+        self.path=path;self.device=device;self.inode=inode
+        guard let fd=openRoot() else {return nil};close(fd)
+    }
+    func openRoot() -> Int32? {
+        guard path.hasPrefix("/"), URL(fileURLWithPath:path).resolvingSymlinksInPath().path==path else {return nil}
+        let parts=path.lowercased().split(separator:"/").map(String.init)
+        guard !parts.contains(where:{[".ssh",".aws",".gnupg",".codex",".config",".kube",".npm",".docker",".local","keychains","credentials","atticus-personal-dev"].contains($0)}) else {return nil}
+        let fd=open(path,O_RDONLY|O_DIRECTORY|O_NOFOLLOW);guard fd>=0 else{return nil}
+        var opened=stat(),current=stat()
+        guard fstat(fd,&opened)==0,lstat(path,&current)==0,(opened.st_mode & S_IFMT)==S_IFDIR,UInt64(opened.st_dev)==device,opened.st_ino==inode,opened.st_dev==current.st_dev,opened.st_ino==current.st_ino,(opened.st_flags & 0x40000000)==0 else {close(fd);return nil}
+        return fd
+    }
+    func allowedName(_ name:String) -> Bool {
+        let lower=name.lowercased();guard !name.isEmpty,name.rangeOfCharacter(from:.controlCharacters)==nil,!name.hasPrefix("."),!name.contains("/"),!name.contains("\\"),name != ".",name != "..",lower.hasSuffix(".txt") || lower.hasSuffix(".md") else {return false}
+        return !["secret","password","credential","token","private","api-key","apikey","recovery","config","keychain",".icloud"].contains(where:{lower.contains($0)})
+    }
+    func list() -> [String]? {
+        guard let fd=openRoot() else {return nil};defer {close(fd)}
+        let copy=dup(fd);guard copy>=0,let dir=fdopendir(copy) else {if copy>=0 {close(copy)};return nil};defer {closedir(dir)}
+        var names:[String]=[], scanned=0
+        while let entry=readdir(dir) {
+            scanned += 1;if scanned>2000 {break}
+            let name=withUnsafePointer(to:&entry.pointee.d_name) { $0.withMemoryRebound(to:CChar.self,capacity:1024) { String(cString:$0) } }
+            guard allowedName(name) else {continue};var item=stat()
+            if name.withCString({fstatat(fd,$0,&item,AT_SYMLINK_NOFOLLOW)})==0,(item.st_mode & S_IFMT)==S_IFREG,(item.st_flags & 0x40000000)==0,item.st_size<=65536 {names.append(name)}
+            if names.count>=200 {break}
+        }
+        guard let verify=openRoot() else {return nil};close(verify);return names.sorted()
+    }
+    func readText(_ name:String) -> String? {
+        guard allowedName(name),let root=openRoot() else{return nil};defer {close(root)}
+        var initial=stat()
+        guard name.withCString({fstatat(root,$0,&initial,AT_SYMLINK_NOFOLLOW)})==0,(initial.st_mode & S_IFMT)==S_IFREG,(initial.st_flags & 0x40000000)==0,initial.st_size>=0,initial.st_size<=65536 else {return nil}
+        let fd=name.withCString {openat(root,$0,O_RDONLY|O_NOFOLLOW|O_NONBLOCK)};guard fd>=0 else{return nil};defer {close(fd)}
+        var before=stat(),after=stat(),entry=stat()
+        guard fstat(fd,&before)==0,(before.st_mode & S_IFMT)==S_IFREG,(before.st_flags & 0x40000000)==0,before.st_size>=0,before.st_size<=65536,initial.st_dev==before.st_dev,initial.st_ino==before.st_ino else{return nil}
+        var data=Data(),buffer=[UInt8](repeating:0,count:8192)
+        while true {let count=Darwin.read(fd,&buffer,buffer.count);if count<0{return nil};if count==0{break};data.append(contentsOf:buffer.prefix(count));if data.count>65536{return nil}}
+        guard fstat(fd,&after)==0,name.withCString({fstatat(root,$0,&entry,AT_SYMLINK_NOFOLLOW)})==0,before.st_dev==after.st_dev,before.st_ino==after.st_ino,before.st_size==after.st_size,before.st_mtimespec.tv_sec==after.st_mtimespec.tv_sec,before.st_mtimespec.tv_nsec==after.st_mtimespec.tv_nsec,before.st_dev==entry.st_dev,before.st_ino==entry.st_ino,(entry.st_mode & S_IFMT)==S_IFREG,let verify=openRoot() else{return nil}
+        close(verify)
+        guard let text=String(data:data,encoding:.utf8) else {return nil}
+        let pattern="(?i)(password|passcode|secret|credential|api[ _-]?key|access[ _-]?token|private[ _-]?key|authorization|-----begin[^\\n]*private key-----|sk-[a-z0-9_-]{16,})"
+        guard text.range(of:pattern,options:.regularExpression)==nil else {return nil};return text
+    }
+}
+
 final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate, NSWindowDelegate {
     var win: NSWindow?, web: WKWebView?
     var feedbackJob = 0, feedbackURL: URL?
+    private var localFolderReadScope: LocalFolderReadScope?
 
     var tab = "", timer: Timer?   // tab: shown once the page loads
     var revealing: [String: Any]?   // a memory item to show once the page loads
@@ -5842,6 +5915,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         var d: [String: Any] = ["devRuntimeSetup": Bundle.main.bundleIdentifier == "com.atticus.personal.dev", "manualUpdates": Updater.manualUpdates, "prefs": Prefs.d, "mics": microphoneChoices(), "version": Updater.version, "update": Updater.status, "managedUpdates": Updater.managedByNix, "sharingUnavailable": ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27,
                                 "hotkeyTaken": !hotkeyRegistered, "dictateHotkeyTaken": !Prefs.str("dictateHotkeyLabel").isEmpty && !dictateHotkeyRegistered, "globeTaken": globeKeyTaken()]
         let routines = (Prefs.path as NSString).deletingLastPathComponent + "/routines.json"
+        d["foregroundContextActive"] = app.currentForegroundContextConsent() != nil
         d["routines"] = (try? JSONSerialization.jsonObject(with:Data(contentsOf:URL(fileURLWithPath:routines)))) as? [[String:Any]] ?? []
         if let t = NSApp.applicationIconImage?.tiffRepresentation, let png = NSBitmapImageRep(data: t)?.representation(using: .png, properties: [:]) {
             d["icon"] = "data:image/png;base64," + png.base64EncodedString()
@@ -5931,6 +6005,57 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
 
     func helper(_ args: [String]) { let p = py(args); try? p.run(); p.waitUntilExit() }
 
+    func contextRequest(_ request:[String:Any]) -> [String:Any] {
+        let p=py(["--foreground-context"]), input=Pipe(), output=Pipe();p.standardInput=input;p.standardOutput=output;p.standardError=FileHandle.nullDevice
+        guard let data=try? JSONSerialization.data(withJSONObject:request) else { return [:] }
+        do { try p.run();try input.fileHandleForWriting.write(contentsOf:data);try? input.fileHandleForWriting.close();let result=output.fileHandleForReading.readDataToEndOfFile();p.waitUntilExit();guard p.terminationStatus==0 else { return [:] };return (try? JSONSerialization.jsonObject(with:result)) as? [String:Any] ?? [:] } catch { return [:] }
+    }
+    func reviewForegroundContext(_ selection:[[String:String]]) {
+        guard Prefs.str("client")=="pi", Prefs.str("foregroundProvider")=="openai" else { send("notice",["text":"Select the foreground OpenAI API provider first."]);return }
+        let model=Prefs.str("foregroundModel").isEmpty ? "gpt-6.1-terra" : Prefs.str("foregroundModel")
+        let preview=contextRequest(["action":"preview","selection":selection])
+        guard let facts=preview["facts"] as? [[String:Any]], !facts.isEmpty else { send("notice",["text":"Facts changed or cannot be shared. Review them again."]);return }
+        let lines=facts.compactMap { f -> String? in guard let k=f["kind"] as? String, let v=f["value"] as? String else { return nil };return "• "+k+": "+v }
+        guard lines.count==facts.count else { return }
+        let alert=NSAlert();alert.messageText="Share selected facts with OpenAI?";alert.informativeText="These exact facts will accompany each foreground chat request to OpenAI (model: "+model+"). They are data, not instructions or permissions. Sharing stops when ATLAS quits or the provider or model changes. You can also turn it off in Memory.\n\n"+lines.joined(separator:"\n");alert.addButton(withTitle:"Share these facts");alert.addButton(withTitle:"Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let current=Prefs.str("foregroundModel").isEmpty ? "gpt-6.1-terra" : Prefs.str("foregroundModel")
+        guard Prefs.str("client")=="pi",Prefs.str("foregroundProvider")=="openai",current==model,let verified=contextRequest(["action":"preview","selection":selection])["facts"] as? [[String:Any]], let a=try? JSONSerialization.data(withJSONObject:facts,options:[.sortedKeys]),let b=try? JSONSerialization.data(withJSONObject:verified,options:[.sortedKeys]),a==b else { send("notice",["text":"Provider or facts changed. Review them again."]);return }
+        let grant:[String:Any]=["provider":"openai","model":model,"selection":selection]
+        let saved=Prefs.set("foregroundContextShare",grant);let active=saved && app.setForegroundContextConsent(grant);push();send("notice",["text":active ? "Selected facts will accompany foreground chats to OpenAI for this app session." : "Sharing remains off; review again."])
+    }
+
+    func folderRequest(_ args:[String], _ request:[String:Any]) -> [String:Any] {
+        let p=py(args), input=Pipe(), output=Pipe();p.standardInput=input;p.standardOutput=output;p.standardError=FileHandle.nullDevice
+        guard let data=try? JSONSerialization.data(withJSONObject:request) else { return [:] }
+        do { try p.run();try input.fileHandleForWriting.write(contentsOf:data);try? input.fileHandleForWriting.close();let out=output.fileHandleForReading.readDataToEndOfFile();p.waitUntilExit();guard p.terminationStatus==0 else {return [:]};return (try? JSONSerialization.jsonObject(with:out)) as? [String:Any] ?? [:] } catch { return [:] }
+    }
+    func refreshFolderGrants() { send("folderGrants",folderRequest(["--folder-grants"],["action":"list"])) }
+    func addFolderGrant(_ access:String) {
+        guard ["read","write"].contains(access) else {return}
+        let picker=NSOpenPanel();picker.title="Choose folder scope";picker.canChooseDirectories=true;picker.canChooseFiles=false;picker.allowsMultipleSelection=false
+        guard picker.runModal() == .OK,let selected=picker.url?.resolvingSymlinksInPath() else {return}
+        let path=selected.path, preview=folderRequest(["--folder-grant-preview"],["path":path])
+        guard let identity=preview["identity"] as? [String:Any] else {send("folderGrants",["error":"Folder unavailable or unsupported."]);return}
+        let alert=NSAlert();alert.messageText="Remember this "+(access=="read" ? "read" : "write")+" scope?";alert.informativeText=path+"\n\nThis saves the selection on this Mac only. It does not grant macOS permission, read or send files, or remove action approvals. Current file tools do not yet use these scopes; a moved or replaced folder must be selected again.";alert.addButton(withTitle:"Remember folder");alert.addButton(withTitle:"Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else {return}
+        let result=folderRequest(["--folder-grants"],["action":"add","path":path,"access":access,"expected":identity,"confirmed":true]);if let error=result["error"] {send("folderGrants",["error":error]);return};refreshFolderGrants()
+    }
+    func activateFolderRead(_ id:String) {
+        let result=folderRequest(["--folder-grants"],["action":"list"])
+        guard let rows=result["grants"] as? [[String:Any]],let row=rows.first(where:{$0["id"] as? String == id}),row["access"] as? String == "read",row["available"] as? Bool == true,let path=row["path"] as? String,let identity=row["identity"] as? [String:Any],let device=identity["device"] as? NSNumber,let inode=identity["inode"] as? NSNumber else {send("folderGrants",["error":"Folder changed or is unavailable."]);return}
+        let alert=NSAlert();alert.messageText="Allow local text preview for this session?";alert.informativeText=path+"\n\nATLAS can list and preview eligible top-level .txt and .md files locally. Contents are not sent to a model. No write access or macOS permission is granted. Sharing ends when ATLAS quits.";alert.addButton(withTitle:"Allow local preview");alert.addButton(withTitle:"Cancel");guard alert.runModal() == .alertFirstButtonReturn else{return}
+        guard let scope=LocalFolderReadScope(path:path,device:device.uint64Value,inode:inode.uint64Value) else {send("folderGrants",["error":"Folder changed or is unavailable."]);return}
+        localFolderReadScope=scope;send("folderLocal",["status":"Local read scope active for this session.","path":path])
+    }
+    func revokeFolderGrant(_ id:String) {
+        let result=folderRequest(["--folder-grants"],["action":"list"])
+        guard let rows=result["grants"] as? [[String:Any]],let row=rows.first(where:{$0["id"] as? String == id}),let path=row["path"] as? String,let identity=row["identity"] as? [String:Any] else {return}
+        let alert=NSAlert();alert.messageText="Forget this folder scope?";alert.informativeText=path;alert.addButton(withTitle:"Forget");alert.addButton(withTitle:"Cancel");guard alert.runModal() == .alertFirstButtonReturn else{return}
+        localFolderReadScope=nil
+        let saved=folderRequest(["--folder-grants"],["action":"revoke","identifier":id,"expected":identity,"confirmed":true]);if let error=saved["error"] {send("folderGrants",["error":error]);return};refreshFolderGrants()
+    }
+
     func importProfile() {
         DispatchQueue.global().async { [weak self] in
             let p = py(["--me", "import"]), out = Pipe(); p.standardOutput = out
@@ -5987,6 +6112,8 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     func apply(_ k: String, _ v: Any) {   // one setting changed, from this window or by voice (atticus.py --set)
+        if k == "foregroundContextShare" { return } // only the native review flow may opt in
+        if ["client","foregroundProvider","foregroundModel"].contains(k) { app.clearForegroundContextConsent() }
         if k == "meetingSave", v as? Bool == false, Prefs.bool("meetingSave") {
             guard Prefs.set(k, false) else { push(); send("notice", ["text": "Couldn’t save that change, so the old setting is back."]); return }
             meeting.savingChanged(false); push()
@@ -6232,6 +6359,21 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
                     } catch { DispatchQueue.main.async { self?.send("notice", ["text":"Could not export preferences."]) } }
                 }
             }
+        case "folderLocalActivate": if let id=b["id"] as? String {activateFolderRead(id)}
+        case "folderLocalStop": localFolderReadScope=nil;send("folderLocal",["status":"Local read scope is off."])
+        case "folderLocalList":
+            guard let scope=localFolderReadScope,let names=scope.list() else {localFolderReadScope=nil;send("folderLocal",["error":"Folder changed, is unavailable, or access was denied."]);return};send("folderLocal",["files":names,"path":scope.path])
+        case "folderLocalRead":
+            guard let name=b["name"] as? String,let scope=localFolderReadScope,let text=scope.readText(name) else {send("folderLocal",["error":"File changed, is unavailable, or is not an eligible local text file."]);return};send("folderLocal",["text":text,"name":name])
+        case "folderGrantsList": refreshFolderGrants()
+        case "folderGrantAdd": if let access=b["access"] as? String { addFolderGrant(access) }
+        case "folderGrantRevoke": if let id=b["id"] as? String { revokeFolderGrant(id) }
+        case "foregroundContextCandidates":
+            send("contextCandidates",contextRequest(["action":"candidates"]))
+        case "foregroundContextEnable":
+            guard let selection=b["selection"] as? [[String:String]] else { return };reviewForegroundContext(selection)
+        case "foregroundContextDisable":
+            app.clearForegroundContextConsent();let saved=Prefs.set("foregroundContextShare",false);push();send("notice",["text":saved ? "Profile sharing is off." : "Sharing is off for this session; could not update the saved selection."])
         case "profileImport": importProfile()   // the button is the only path that requests Contacts/Mail access
         case "me":
             guard let action = b["action"] as? String else { return }
@@ -8630,6 +8772,23 @@ if CommandLine.arguments.dropFirst() == ["--selftest"] {
     precondition(cancelled && !scope.active && auditStarted.wait(timeout:.now()+1) == .success)
     precondition(!scope.permits(question:fixture.question,command:fixture.command,requestID:String(repeating:"e",count:64),now:{fakeNow}))
     releaseAudit.signal();precondition(auditFinished.wait(timeout:.now()+1) == .success)
+    let folderTest=URL(fileURLWithPath:"/tmp").appendingPathComponent("atlas-folder-fixture-"+UUID().uuidString)
+    let movedTest=URL(fileURLWithPath:folderTest.path+"-old")
+    do {
+        let fm=FileManager.default;try fm.createDirectory(at:folderTest,withIntermediateDirectories:false)
+        defer {try? fm.removeItem(at:folderTest);try? fm.removeItem(at:movedTest)}
+        try "fixture".write(to:folderTest.appendingPathComponent("note.md"),atomically:true,encoding:.utf8)
+        try "password: synthetic".write(to:folderTest.appendingPathComponent("sensitive.md"),atomically:true,encoding:.utf8)
+        try "csv fixture".write(to:folderTest.appendingPathComponent("fixture.csv"),atomically:true,encoding:.utf8)
+        try Data(repeating:65,count:65537).write(to:folderTest.appendingPathComponent("large.txt"))
+        try fm.createSymbolicLink(atPath:folderTest.appendingPathComponent("link.md").path,withDestinationPath:folderTest.appendingPathComponent("note.md").path)
+        var info=stat();precondition(lstat(folderTest.path,&info)==0)
+        guard let reader=LocalFolderReadScope(path:folderTest.path,device:UInt64(info.st_dev),inode:info.st_ino) else {fatalError("fixture root unavailable")}
+        precondition(reader.list()?.contains("note.md") == true && reader.list()?.contains("link.md") == false)
+        precondition(reader.readText("note.md")=="fixture" && reader.readText("sensitive.md")==nil && reader.readText("large.txt")==nil && reader.readText("link.md")==nil && reader.readText("../note.md")==nil && reader.readText("fixture.csv\0alias.md")==nil)
+        try fm.moveItem(at:folderTest,to:movedTest);try fm.createDirectory(at:folderTest,withIntermediateDirectories:false)
+        precondition(reader.list()==nil && reader.readText("note.md")==nil)
+    } catch {fatalError("folder fixture failed: \(error)")}
     Hands.selftest()
     if Updater.manualUpdates { var done=false; Updater.check { done=true }; precondition(done && Updater.status == Updater.manualMessage) }
     print("native selftest ok"); exit(0)

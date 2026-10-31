@@ -390,10 +390,14 @@
   <section id="memory">
     <h1>Memory</h1>
     <div class="profile-head"><h3>About you</h3><button class="btn blue" id="profileImport">Import from your Mac</button></div>
-    <p class="lede" style="margin:0 2px 9px;font-size:11.5px">Only your name and answer style go with every ask.</p>
+    <p class="lede" style="margin:0 2px 9px;font-size:11.5px">Foreground OpenAI chat uses saved facts only if you opt in below; other provider paths may handle memory differently.</p>
     <div class="group" id="profileCategories"></div>
     <div class="profile-sources" id="profileSources"></div>
     <div id="profileStatus" role="status" aria-live="polite"></div>
+    <h3>Share selected facts with foreground chat</h3>
+    <p class="lede">Off until you explicitly approve for this app session. Select up to five facts. They accompany each foreground chat request to OpenAI; the confirmation shows the model and exact facts. Restart, provider or model changes stop sharing.</p>
+    <p id="contextShareStatus" role="status"></p><button class="btn" id="contextLoad">Choose facts…</button> <button class="btn" id="contextDisable">Turn off sharing</button>
+    <div class="group" id="contextCandidates"></div><button class="btn blue" id="contextReview" hidden>Review selected facts…</button>
     <h3>Learning</h3>
     <div class="group">
       <div class="row"><div class="t"><b>Save chats</b><span>Plain conversations, in Agents on this Mac. <i class="info" title="Answers that changed nothing. They never go with your asks.">i</i></span></div><label class="sw"><input type="checkbox" data-k="saveChats"></label></div>
@@ -455,6 +459,13 @@
       <div class="row"><div class="t"><b>Look at my screen</b><span>Only when you mean it, like “this”. <i class="info" title="The picture goes with that one ask.">i</i></span></div><div class="seg" data-k="screen"><button data-v="auto">Automatic</button><button data-v="never">Never</button></div></div>
       <div class="row"><div class="t"><b>Hide from screen sharing</b><span id="sharingUnavailable" hidden>On this macOS version, ATLAS windows can appear in screen sharing.</span></div><label class="sw"><input type="checkbox" data-k="hideWhenSharing"></label></div>
     </div>
+    <h3>Folder scopes</h3>
+    <p class="lede">Remember folders separately for read or write. Read scopes can be activated for local-only text previews. They do not authorize model sharing or reduce approvals. Write scopes are saved for future use and do not allow writes. macOS permissions still apply.</p>
+    <button class="btn" id="folderRead">Remember read folder…</button> <button class="btn" id="folderWrite">Remember write folder…</button> <button class="btn" id="folderRefresh">Refresh</button>
+    <div class="group" id="folderGrants"></div><p id="folderGrantStatus" role="status"></p>
+    <p>Local preview supports eligible top-level .md and .txt files up to 64 KiB. Listing scans at most 2,000 entries and shows at most 200 files. Hidden and sensitive names are excluded. Contents stay here and are not sent to a model.</p>
+    <button class="btn" id="folderLocalList">List eligible files</button> <button class="btn" id="folderLocalStop">Stop local access</button>
+    <p id="folderLocalStatus" role="status"></p><div id="folderLocalFiles"></div><pre id="folderLocalText"></pre>
     <h3>Obsidian activity</h3>
     <div class="group">
       <div class="row"><div class="t"><b>Log verified agent work</b><span>Off by default; logs only results you verify. <i class="info" title="Each verified task is a separate immutable entry; existing notes are not overwritten.">i</i></span></div><label class="sw"><input type="checkbox" data-k="journalEnabled"></label></div>
@@ -537,7 +548,7 @@
   const esc = t => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));   // for text put into innerHTML
   const post = m => window.webkit?.messageHandlers.st.postMessage(m);
   $('setupPiRuntime').onclick=()=>post({do:'setupPiRuntime'});
-  let P = {};
+  let P = {}, contextActive = false;
   let hotkeyTaken = false, dictateHotkeyTaken = false;   // another app owns a saved shortcut, so it does nothing
   const shortcutHint = () => hotkeyTaken ? 'Another app uses this shortcut. Change it to use ATLAS.' : P.input === 'type' ? 'Press to type. Return sends.' : P.talkMode === 'toggle' ? 'Press to listen. Press again to send.' : 'Hold it, talk, let go.';
   const set = (k, v) => { P[k] = v; post({ do: 'set', k, v }); paint(); };
@@ -616,6 +627,7 @@
     if (s === 'feedback') { $('feedbackinclude').checked=false; feedbackPreview(); }
     if (s === 'apps') post({ do: 'apps' });   // fresh list and statuses each visit
     if (s === 'brain') probe();
+    if (s === 'account') post({do:'folderGrantsList'});
   }
   document.querySelectorAll('nav button[data-s]').forEach(b => b.onclick = () => openSection(b.dataset.s));
   document.querySelectorAll('[data-do]').forEach(b => b.onclick = () => post({ do: b.dataset.do }));
@@ -717,6 +729,7 @@
     $('volv').textContent = Math.round(P.volume / .6 * 100) + '%';
     $('routingwhy').textContent = WHY[P.routing] || '';
     SERVER.forEach(k => { if (document.activeElement !== $(k)) $(k).value = P[k] || ''; });
+    $('contextShareStatus').textContent = contextActive ? 'Sharing is on for this session; changed facts pause sharing.' : 'Sharing is off. Review saved selections to turn it on.';
     $('keychainControls').hidden = !P.keychainMode;
     $('codexKeychainSection').hidden = !P.keychainMode;
     const bothLegacy = !!P.legacyApiKeyPresent && !!P.legacyCodexApiKeyPresent;
@@ -942,6 +955,14 @@
     $('profileImport').textContent = imported ? 'Refresh' : 'Import from your Mac';
     if (imported && !$('profileStatus').textContent) $('profileStatus').textContent = `${sourceCounts.contacts || 0} from Contacts · ${sourceCounts.mail || 0} from Mail`;
   }
+  $('folderRead').onclick=()=>post({do:'folderGrantAdd',access:'read'});
+  $('folderWrite').onclick=()=>post({do:'folderGrantAdd',access:'write'});
+  $('folderRefresh').onclick=()=>post({do:'folderGrantsList'});
+  $('folderLocalList').onclick=()=>{ $('folderLocalText').textContent='';post({do:'folderLocalList'}); };
+  $('folderLocalStop').onclick=()=>{ $('folderLocalFiles').replaceChildren();$('folderLocalText').textContent='';post({do:'folderLocalStop'}); };
+  $('contextLoad').onclick=()=>post({do:'foregroundContextCandidates'});
+  $('contextDisable').onclick=()=>post({do:'foregroundContextDisable'});
+  $('contextReview').onclick=()=>post({do:'foregroundContextEnable',selection:[...document.querySelectorAll('.contextFact:checked')].map(x=>({id:x.dataset.id,revision:x.dataset.revision}))});
   $('profileImport').onclick = () => { $('profileImport').disabled = true; $('profileStatus').textContent = 'Importing from Contacts and Mail…'; post({do:'profileImport'}); };
   const SERVER = ['apiBase', 'apiKey', 'apiModel', 'agentApiModel'];   // Intelligence → Custom server, saved like About you
   const probe = () => {   // ask the saved server for its models; st.models says whether it answered
@@ -1060,6 +1081,25 @@
     memoryTransactionResult(result) { $('memoryTransactionStatus').textContent = result.error || `Memory ${result.status}.`; },
     destinationResult(result) { $('destinationStatus').textContent = result.error || `Destination ${result.status}.`; if (result.backup) { destinationBackup = result.backup; $('destinationUndo').hidden = false; } if (result.status === 'restored') { destinationBackup = ''; $('destinationUndo').hidden = true; } },
     feedback(result){if(result.revision!==feedbackRevision)return;if(result.error){$('feedbackbody').textContent=result.error;$('feedbackopen').disabled=true;return;}if(result.include!==$('feedbackinclude').checked)return;$('feedbackbody').textContent=result.body;$('feedbackopen').disabled=false;},
+    folderGrants(result) {
+      const root=$('folderGrants');root.replaceChildren();$('folderGrantStatus').textContent=result.error || '';
+      const rows=Array.isArray(result.grants)?result.grants:[];
+      for(const r of rows){const row=document.createElement('div'),text=document.createElement('span'),button=document.createElement('button');row.className='row';text.textContent=r.access+' · '+r.path+' · '+(r.available?'available':'unavailable or changed');button.className='btn';button.textContent='Forget';button.onclick=()=>post({do:'folderGrantRevoke',id:r.id});row.append(text,button);if(r.access==='read' && r.available){const activate=document.createElement('button');activate.className='btn';activate.textContent='Activate local read…';activate.onclick=()=>{ $('folderLocalFiles').replaceChildren();$('folderLocalText').textContent='';post({do:'folderLocalActivate',id:r.id}); };row.append(activate);}root.append(row);}
+      if(!rows.length&&!result.error)root.textContent='No folders remembered.';
+    },
+    folderLocal(result) {
+      $('folderLocalStatus').textContent=result.error || result.status || (result.path ? 'Local preview: '+result.path : '');
+      if(result.error || result.status){$('folderLocalFiles').replaceChildren();$('folderLocalText').textContent='';}
+      if(Array.isArray(result.files)){const root=$('folderLocalFiles');root.replaceChildren();for(const name of result.files){const b=document.createElement('button');b.className='btn';b.textContent=name;b.onclick=()=>post({do:'folderLocalRead',name});root.append(b);}if(!result.files.length)root.textContent='No eligible files.';}
+      if(typeof result.text==='string')$('folderLocalText').textContent=result.text;
+    },
+    contextCandidates(result) {
+      const root=$('contextCandidates');root.replaceChildren();
+      const facts=Array.isArray(result.facts)?result.facts:[];
+      for(const f of facts){const label=document.createElement('label'),check=document.createElement('input'),text=document.createElement('span');check.type='checkbox';check.className='contextFact';check.dataset.id=f.id;check.dataset.revision=f.revision;check.checked=Array.isArray(P.foregroundContextShare?.selection) && P.foregroundContextShare.selection.some(x=>x.id===f.id && x.revision===f.revision);text.textContent=f.kind+': '+f.value;label.className='row';label.append(check,text);root.append(label);}
+      if(!facts.length) root.textContent=result.error || 'No eligible owner-confirmed facts are available.';
+      $('contextReview').hidden=!facts.length;
+    },
     profileImport(result) {
       $('profileImport').disabled = false;
       const errors = result.errors || [], counts = result.counts || {}, failed = errors.map(e => ({contacts: 'Contacts', mail: 'Mail'}[e] || e)).join(' and ');
@@ -1126,6 +1166,7 @@
       $('shortcut').classList.remove('rec'); $('change').textContent = 'Change Shortcut'; $('dictatechange').classList.remove('rec');
       hotkeyTaken = !!d.hotkeyTaken; dictateHotkeyTaken = !!d.dictateHotkeyTaken; if ($('schint').className !== 'warn') $('schint').className = hotkeyTaken ? 'taken' : '';
       if (d.icon) $('icon').src = $('bigicon').src = d.icon;
+      contextActive = d.foregroundContextActive === true;
       $('ver').textContent = $('aboutver').textContent = d.version ? (d.manualUpdates ? 'ATLAS v3 · Version ' : 'Version ') + d.version : 'ATLAS';
       $('autoUpdateRow').hidden = $('checkUpdate').hidden = !!(d.managedUpdates || d.manualUpdates);
       $('sharingUnavailable').hidden = !d.sharingUnavailable;

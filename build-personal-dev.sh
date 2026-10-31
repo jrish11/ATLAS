@@ -15,7 +15,7 @@ mkdir -p "$CACHE/clang" "$CACHE/swift" "$STAGE/Atticus Dev.app/Contents/MacOS" "
 export CLANG_MODULE_CACHE_PATH="$CACHE/clang"
 swiftc -module-cache-path "$CACHE/swift" -O -target "$(uname -m)-apple-macos26.0" Atticus.swift -o "$STAGE/Atticus Dev.app/Contents/MacOS/Atticus"
 swiftc -module-cache-path "$CACHE/swift" PersonalKeychain.swift -o "$STAGE/Atticus Dev.app/Contents/MacOS/PersonalKeychain"
-cp atticus.py personal_commands.py memory_destinations.py memory_inspector.py memory_transactions.py memory_seed.py autonomy_policy.py approval_channel.py memory_rules_store.py memory_corrections.py memory_workflows.py foreground_openai.py foreground_control.py foreground_smoke.py codex_provider.py vault_journal.py keychain_store.py "$STAGE/Atticus Dev.app/Contents/Resources/"
+cp atticus.py personal_commands.py memory_destinations.py memory_inspector.py memory_transactions.py memory_seed.py folder_grants.py autonomy_policy.py approval_channel.py memory_rules_store.py memory_corrections.py memory_workflows.py foreground_openai.py foreground_control.py foreground_smoke.py codex_provider.py vault_journal.py keychain_store.py "$STAGE/Atticus Dev.app/Contents/Resources/"
 cp ui/*.html ui/*.js ui/AppIcon.icns "$STAGE/Atticus Dev.app/Contents/Resources/ui/"
 cp ui/AppIcon.icns "$STAGE/Atticus Dev.app/Contents/Resources/"
 # Copy only the explicitly supplied public Pi distribution and Node runtime.

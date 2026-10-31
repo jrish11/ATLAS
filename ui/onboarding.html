@@ -363,7 +363,7 @@
 <section class="page" id="welcome">
   <div id="orbwrap" class="r"><canvas id="orb"></canvas></div>
   <h1 class="r">Meet ATLAS</h1>
-  <p class="sub r" id="welcome-talk">Hold the shortcut, say what you need, let go. Your Mac does the rest.</p>
+  <p class="sub r" id="welcome-talk">Hold the shortcut, say what you need, then let go. Available actions depend on setup and approval.</p>
   <div class="keys r" id="welkeys"><div class="key">⌃</div><div class="key">⌥</div><div class="key wide">Space</div></div>
   <button class="btn r" data-go="perms">Get Started</button>
 </section>
@@ -378,10 +378,10 @@
 
 <section class="page" id="agents">
   <h2 class="r">Agents keep working while you do</h2>
-  <p class="sub r">Hand off a bigger task and keep asking. An agent uses these only when a task needs them.</p>
-  <div class="cap r">ATLAS turns these on</div>
+  <p class="sub r">Available agent features depend on your selected provider. Codex jobs are not enabled in this limited build.</p>
+  <div class="cap r">Optional integrations</div>
   <div class="list r" id="own"></div>
-  <div class="cap r">Only you can allow these. macOS and Claude ask you directly.</div>
+  <div class="cap r">Only you can allow these. macOS and the selected provider may ask you directly.</div>
   <div class="list r" id="yours"></div>
   <div class="bar2 r"><button class="btn quiet" data-go="try" id="agents-next">Skip for Now</button><button class="btn" id="enable">Enable All</button></div>
 </section>
@@ -395,9 +395,9 @@
 </section>
 
 <section class="page" id="mac">
-  <div class="kicker r">Your whole Mac, by voice</div>
-  <h2 class="r">Say it. It’s done.</h2>
-  <p class="sub r">Run apps, arrange windows and play music in the background. When the work is out of sight, a live mini screen shows it; click it to open that window.</p>
+  <div class="kicker r">A look at possible actions</div>
+  <h2 class="r">Ask ATLAS</h2>
+  <p class="sub r">Illustration of upstream features; this limited build does not verify general Mac control. Some supported actions require your approval. A live mini screen, where supported, lets you click it to open that window.</p>
   <div class="stage r" id="macstage" aria-hidden="true">
     <div class="mw" id="mw-chrome"><div class="tb"><i></i><i></i><i></i><span>Chrome</span></div><div class="ln"></div><div class="ln" style="width:60%"></div><div class="ln" style="width:75%"></div></div>
     <div class="mw" id="mw-notes"><div class="tb"><i></i><i></i><i></i><span>Notes</span></div><div class="ln" style="width:50%"></div><div class="ln"></div></div>
@@ -579,6 +579,9 @@
     capable: 'Your work model for every ask. Slower, and uses the most of your plan.' };
   const paintPrefs = () => {
     const other = ['devin', 'pi'].includes(provider);
+    const limited = provider === 'pi';
+    for (const id of ['a-tools','a-connectors','a-chrome']) { const row=$(id);if(row)row.hidden=limited; }
+    if ($('enable')) $('enable').hidden=limited;
     document.querySelectorAll('.seg[data-k]').forEach(g => g.querySelectorAll('button').forEach(b => {
       const on = prefs[g.dataset.k] === b.dataset.v; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
     }));
@@ -725,8 +728,8 @@
   let planOK = false, last = null, toggleMode = false, talkLabel = '⌃⌥Space';
   const paintDone=s=>{
     const core=[['claude','AI provider'],['mic','Microphone'],['speech','Speech Recognition'],['ax','Accessibility']],missing=core.filter(([id])=>!s[id]).map(([,name])=>name),voice=['claude','mic','speech'].every(id=>s[id]);
-    $('done-title').textContent=!missing.length?'You’re all set':voice?'Voice is ready':'Setup isn’t finished yet';$('done-status').className=missing.length?'warn':'';
-    $('done-sub').textContent=!missing.length?(toggleMode?'Press':'Hold')+' the shortcut anywhere and try one.':(voice?'Still needed for full Mac control: ':'Still needed: ')+missing.join(', ')+'. You can allow '+(missing.length===1?'it':'them')+' later in Setup & Permissions.';
+    $('done-title').textContent=!missing.length?'Setup choices saved':voice?'Voice setup is available':'Setup isn’t finished yet';$('done-status').className=missing.length?'warn':'';
+    $('done-sub').textContent=!missing.length?(toggleMode?'Press':'Hold')+' the shortcut anywhere and try one.':(voice?'Optional permissions not yet granted: ':'Still needed for voice: ')+missing.join(', ')+'. You can allow '+(missing.length===1?'it':'them')+' later in Setup & Permissions.';
     $('finish').textContent=voice?'Start Using ATLAS':'Finish Setup Later';
   };
   window.ob = {
@@ -809,7 +812,7 @@
       }
       for (const [id] of [...OWN, ...YOURS]) if (id !== 'connectors') $('a-' + id).classList.toggle('ok', !!s[id]);
       const left = [...OWN, ...YOURS].filter(([id]) => !$('a-' + id).classList.contains('ok')).length;
-      $('enable').hidden = !left; $('agents-next').textContent = left ? 'Skip for Now' : 'Continue'; $('agents-next').classList.toggle('quiet', !!left);
+      $('enable').hidden = provider === 'pi' || !left; $('agents-next').textContent = left ? 'Skip for Now' : 'Continue'; $('agents-next').classList.toggle('quiet', !!left);
       $('count').textContent = n === P.length ? 'All set' : `${n} of ${P.length} allowed`;
       $('count').classList.toggle('all', n === P.length);
       $('next').textContent = n === P.length ? 'Continue' : 'Skip for Now';
