@@ -160,6 +160,8 @@ static class NativeApprovalTests
             string codexHome = Path.GetFullPath(probeInfo.Environment["CODEX_HOME"]);
             Require(Directory.Exists(codexHome) && codexHome == Path.Combine(isolatedProfile, ".codex"), "isolated CODEX_HOME exists within profile");
             Require(probeInfo.Environment["SystemDrive"] == Path.GetPathRoot(Environment.SystemDirectory).TrimEnd('\\'), "probe system drive supplied");
+            var canaryInfo = NativeSandboxProbe.BuildProbeStart(Path.GetFullPath(args[0]), layoutRoot, 32123, canary: true);
+            Require(canaryInfo.ArgumentList.Last() == "echo ATLAS_MXC_CANARY" && canaryInfo.ArgumentList.Contains("permissions.atlas_probe.network.enabled=false"), "canary retains network-disabled policy");
             Require(probeInfo.ArgumentList.Contains("permissions.atlas_probe.network.enabled=false") && probeInfo.ArgumentList.Contains("windows.sandbox=\"mxc\""), "explicit MXC network-disabled policy");
             string commandText = File.ReadAllText(Path.Combine(layoutRoot, "project", "fixture.cmd"));
             Require(commandText.Contains("ATLAS_PROBE_STARTED", StringComparison.Ordinal) && commandText.Contains("ATLAS_INSIDE_WRITTEN", StringComparison.Ordinal) && commandText.Contains("ATLAS_OUTSIDE_DENIED", StringComparison.Ordinal) && commandText.Contains("ATLAS_NETWORK_DENIED", StringComparison.Ordinal), "probe stage diagnostics present");
