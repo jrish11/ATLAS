@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.ComponentModel;
 using System.Text;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
@@ -16,6 +17,15 @@ static class NativeApprovalTests
     static extern SafeFileHandle CreateFileW(string path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool DeviceIoControl(SafeFileHandle handle, uint code, byte[] input, uint size, IntPtr output, uint outputSize, out uint returned, IntPtr overlapped);
+    [DllImport("kernel32.dll", EntryPoint = "DeviceIoControl", SetLastError = true)]
+    static extern bool ReadReparsePoint(SafeFileHandle handle, uint code, IntPtr input, uint size, byte[] output, uint outputSize, out uint returned, IntPtr overlapped);
+    static bool ExpectedMutationDenial(int error) => error is 5 or 32 or 1314;
+    static void CleanupWithoutMasking(Action cleanup, Exception primary)
+    {
+        try { cleanup(); }
+        catch (Exception ex) { if (primary == null) throw; Console.Error.WriteLine("Cleanup failed after original error: " + ex); }
+    }
+    static bool WithinScratch(string path, string scratch) => Path.GetFullPath(path).StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(scratch)) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     // Attempt an actual in-place junction conversion of a disposable empty
     // directory while the guard holds it. If Windows denies mutation, that is
@@ -23,7 +33,7 @@ static class NativeApprovalTests
     static bool TrySetJunction(string directory, string target)
     {
         using var h = CreateFileW(directory, 0x40000000, 3, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
-        if (h.IsInvalid) return false;
+        if (h.IsInvalid) { int error = Marshal.GetLastWin32Error(); if (ExpectedMutationDenial(error)) { Console.WriteLine("Mutation handle denied, Win32 " + error); return false; } throw new Win32Exception(error, "Open scratch junction fixture failed"); }
         byte[] sub = Encoding.Unicode.GetBytes(@"\??\" + target);
         byte[] print = Encoding.Unicode.GetBytes(target);
         using var memory = new MemoryStream(); using var writer = new BinaryWriter(memory);
@@ -31,7 +41,28 @@ static class NativeApprovalTests
         writer.Write((ushort)0); writer.Write((ushort)sub.Length); writer.Write((ushort)(sub.Length + 2)); writer.Write((ushort)print.Length);
         writer.Write(sub); writer.Write((ushort)0); writer.Write(print); writer.Write((ushort)0);
         byte[] buffer = memory.ToArray();
-        return DeviceIoControl(h, 0x000900A4, buffer, (uint)buffer.Length, IntPtr.Zero, 0, out _, IntPtr.Zero);
+        if (DeviceIoControl(h, 0x000900A4, buffer, (uint)buffer.Length, IntPtr.Zero, 0, out _, IntPtr.Zero)) return true;
+        int failure = Marshal.GetLastWin32Error();
+        if (ExpectedMutationDenial(failure)) { Console.WriteLine("Reparse mutation denied, Win32 " + failure); return false; }
+        throw new Win32Exception(failure, "Setting scratch junction failed; fixture layout or filesystem may be unsupported");
+    }
+    static void RemoveFixtureJunction(string directory, string target, string scratch)
+    {
+        if (!WithinScratch(directory, scratch) || !WithinScratch(target, scratch)) throw new InvalidOperationException("Fixture paths must remain inside scratch.");
+        using var h = CreateFileW(directory, 0x40000000, 3, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+        if (h.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot open scratch junction for cleanup");
+        byte[] data = new byte[16384];
+        if (!ReadReparsePoint(h, 0x000900A8, IntPtr.Zero, 0, data, (uint)data.Length, out uint received, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot read scratch reparse point");
+        if (received < 16 || BitConverter.ToUInt32(data, 0) != 0xA0000003u) throw new InvalidDataException("Unexpected scratch reparse tag; refusing removal.");
+        int offset = BitConverter.ToUInt16(data, 8), length = BitConverter.ToUInt16(data, 10);
+        bool validTarget = offset % 2 == 0 && length % 2 == 0 && 16 + offset + length <= received &&
+            string.Equals(Encoding.Unicode.GetString(data, 16 + offset, length), @"\??\" + target, StringComparison.OrdinalIgnoreCase);
+        // Delete only the exact mount-point tag just created by this fixture;
+        // unlike Directory.Delete, this does not traverse the junction target.
+        byte[] header = new byte[8]; BitConverter.GetBytes(0xA0000003u).CopyTo(header, 0);
+        if (!DeviceIoControl(h, 0x000900AC, header, (uint)header.Length, IntPtr.Zero, 0, out _, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot remove scratch junction tag");
+        if (!validTarget) throw new InvalidDataException("Scratch junction target readback did not match the fixture.");
+        if (!Directory.Exists(target)) throw new IOException("Scratch junction target disappeared.");
     }
 
     static void Main(string[] args)
@@ -85,6 +116,7 @@ static class NativeApprovalTests
         string root = Environment.GetEnvironmentVariable("ATLAS_NATIVE_TEST_ROOT") ?? throw new Exception("Set ATLAS_NATIVE_TEST_ROOT to a scratch folder outside the user profile and app directory.");
         string scratch = Path.Combine(root, "atlas-native-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);
+        Exception scratchFailure = null;
         try
         {
             // Only change disposable scratch data and fake environment values.
@@ -119,16 +151,23 @@ static class NativeApprovalTests
                 Require(pathRejected, "protected project denied");
             }
             finally { Environment.SetEnvironmentVariable("CODEX_HOME", oldCodexHome); }
-            using (var identity = WindowsProjectGuard.Open(selected))
+            if (!WithinScratch(selected, scratch) || !WithinScratch(target, scratch)) throw new InvalidOperationException("Mutation fixture escaped scratch.");
+            bool mutated = false; Exception mutationFailure = null;
+            try
             {
-                bool mutated = TrySetJunction(selected, target);
+                using var identity = WindowsProjectGuard.Open(selected);
+                mutated = TrySetJunction(selected, target);
                 if (mutated)
                 {
-                    pathRejected = false; try { identity.EnsureActive(); } catch (InvalidOperationException) { pathRejected = true; }
+                    pathRejected = false;
+                    try { identity.EnsureActive(); }
+                    catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { pathRejected = true; Console.WriteLine("Guard rejected mutation: " + ex.GetType().Name); }
                     Require(pathRejected, "in-place reparse mutation detected");
                 }
-                else { identity.EnsureActive(); Console.WriteLine("OS denied scratch in-place reparse mutation while guarded."); }
+                else { identity.EnsureActive(); Console.WriteLine("OS denied this scratch in-place reparse mutation while guarded; other mutation methods remain unverified."); }
             }
+            catch (Exception ex) { mutationFailure = ex; throw; }
+            finally { if (mutated) CleanupWithoutMasking(() => RemoveFixtureJunction(selected, target, scratch), mutationFailure); }
             foreach (string mode in new[] { "ok", "unsafe", "stale", "cancel", "duplicate", "conflict", "late", "duplicate_cancel" })
             {
                 using var guard = WindowsProjectGuard.Open(scratch);
@@ -156,7 +195,8 @@ static class NativeApprovalTests
                 catch (InvalidDataException) when (mode == "duplicate" || mode == "conflict") { Require(promptCount == 1, "duplicate provider request not reprompted"); }
             }
         }
-        finally { Directory.Delete(scratch, true); }
+        catch (Exception ex) { scratchFailure = ex; throw; }
+        finally { CleanupWithoutMasking(() => Directory.Delete(scratch, true), scratchFailure); }
         // Fill a never-reading child's pipe with one large queued frame. The
         // authority lock and process teardown must remain independently usable.
         {
