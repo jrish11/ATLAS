@@ -28,7 +28,7 @@ def app_revision(app):
         return path+'|'+executable+'|'+h.hexdigest()
     except (OSError,ValueError,KeyError,TypeError,plistlib.InvalidFileException): return None
 
-def handle(request, lookup, approve, launch, focus, click, cancelled, automatic=None, verify_revision=app_revision):
+def handle(request, lookup, approve, launch, focus, click, cancelled, automatic=None, verify_revision=app_revision, background_only=False, background_check=None):
     if not isinstance(request, dict): return {'status':'blocked','text':'Invalid control request.'}
     action=request.get('action'); required={'action','bundle_id'} | ({'target'} if action=='click' else set())
     if action not in ('open_app','focus_app','click') or set(request)!=required:
@@ -39,6 +39,9 @@ def handle(request, lookup, approve, launch, focus, click, cancelled, automatic=
     if action=='click' and (not isinstance(target,str) or not target.strip() or len(target)>120 or target.strip().isdigit() or any(c in target for c in '\r\n>')):
         return {'status':'blocked','text':'An exact named control is required.'}
     if cancelled(): return {'status':'cancelled','text':'The request was cancelled; nothing was done.'}
+    active = background_check or (lambda: background_only)
+    if active() and action in ('open_app','focus_app'):
+        return {'status':'needs_foreground','text':'This action needs an app brought forward. Turn off Do not interrupt my work to proceed.'}
     app=lookup(bundle)
     if not isinstance(app,dict) or app.get('bundle_id')!=bundle or not isinstance(app.get('path'),str) or not app['path'].startswith('/'):
         return {'status':'blocked','text':'The installed app could not be identified.'}
@@ -48,7 +51,7 @@ def handle(request, lookup, approve, launch, focus, click, cancelled, automatic=
         inspection=approve({'q':'Inspect this app to find one named control?', 'cmd':bundle+' — '+target+'; no screen text is sent to the model'})
         if inspection!='y' or getattr(inspection,'deadline',None) is not None:
             return {'status':'cancelled','text':'The app was not inspected.'}
-        if lookup(bundle)!=app or cancelled() or not approval_channel.authorized(inspection): return {'status':'cancelled','text':'The app changed or the request was cancelled.'}
+        if lookup(bundle)!=app or cancelled() or not approval_channel.authorized(inspection) or active()!=background_only: return {'status':'cancelled','text':'The app or setting changed, or the request was cancelled.'}
         def approve_target(check):
             if cancelled() or not isinstance(check,dict) or check.get('args')!=['click',target] or type(check.get('pid')) is not int or check['pid'] != app.get('pid'):
                 return False
@@ -63,7 +66,7 @@ def handle(request, lookup, approve, launch, focus, click, cancelled, automatic=
             question={'q':'Allow this potentially consequential action?' if check['risky'] else 'Allow this control action?', 'cmd':bundle+' · '+(window or 'Untitled')+' · window '+check['windowID']+' · '+labels[0]}
             decision=approve(question)
             if decision!='y' or getattr(decision,'deadline',None) is not None: return False
-            return lookup(bundle)==app and not cancelled() and approval_channel.authorized(decision)
+            return lookup(bundle)==app and not cancelled() and approval_channel.authorized(decision) and active()==background_only
         result=click(bundle,target,approve_target)
         return result if isinstance(result,dict) else {'status':'unverified','text':'The action outcome is unknown; inspect before retrying.'}
     if automatic is not None:
@@ -74,5 +77,6 @@ def handle(request, lookup, approve, launch, focus, click, cancelled, automatic=
         return {'status':'cancelled','text':'The app action was not performed.'}
     revision=getattr(decision,'revision',None)
     if lookup(bundle)!=app or (getattr(decision,'deadline',None) is not None and (not revision or verify_revision(app)!=revision)) or cancelled() or not approval_channel.authorized(decision): return {'status':'cancelled','text':'The app changed, authorization expired, or the request was cancelled.'}
+    if active(): return {'status':'needs_foreground','text':'The setting changed; this action needs the foreground. Nothing was done.'}
     result=(launch if action=='open_app' else focus)(app)
     return result if isinstance(result,dict) else {'status':'unverified','text':'The app action could not be verified.'}

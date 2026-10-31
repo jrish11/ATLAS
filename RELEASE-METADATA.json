@@ -15,5 +15,7 @@
     "sha256": "43af1cdb16b4a9fb251b2041cdf9b5238a223446a56e43dbc9376fbf0bb24d8b",
     "size_bytes": 2123762
   },
-  "history": "clean upstream ancestry plus sanitized release snapshot commits/tags; raw customized metadata not published"
+  "history": "clean upstream ancestry plus sanitized release snapshot commits/tags; raw customized metadata not published",
+  "development_source_commit": "ab41269fc15bd7c395669c7a597430bc98df1633",
+  "development_status": "49 focused synthetic checks plus original setting-race probes passed; native interaction/reference fidelity unverified; no release"
 }

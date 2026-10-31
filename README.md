@@ -1,3 +1,5 @@
+> DEVELOPMENT BRANCH — background safeguards and Settings appearance from ab41269fc15bd7c395669c7a597430bc98df1633. Not a delivered update. Native interactive behavior remains unverified; current delivered release is v3.5.
+
 # ATLAS
 
 A customized fork of [Atticus for macOS](https://github.com/SaarthurR/atticus-mac), retaining its compact floating interface, menu bar, voice/typed interaction and existing architecture. ATLAS is not the unrelated earlier prototype bearing the same name.

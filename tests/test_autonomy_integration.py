@@ -17,7 +17,7 @@ class IntegrationTests(unittest.TestCase):
   row={'label':'Fixture','aliases':['fixture'],'url':'https://example.com/','browser':'Safari','confirmed':True}; target={'type':'destination','id':'Fixture','revision':a.fingerprint(row)}
   with tempfile.TemporaryDirectory() as d:
    store=a.SessionStore(d,'a'*64);store.activate([target],10,110,True);opened=[]
-   with patch.object(atticus,'autonomy_store',return_value=store),patch.object(atticus.personal_commands,'resolve',return_value=row),patch.object(atticus.time,'monotonic',return_value=11),patch.dict(os.environ,{'ATTICUS_ASK':d,'ATTICUS_DIR':d}):
+   with patch.object(atticus,'autonomy_store',return_value=store),patch.object(atticus,'pref',return_value=False),patch.object(atticus.personal_commands,'resolve',return_value=row),patch.object(atticus.time,'monotonic',return_value=11),patch.dict(os.environ,{'ATTICUS_ASK':d,'ATTICUS_DIR':d}):
     approve=Mock(return_value='n'); action=lambda r:opened.append(r) or 'opened'
     self.assertEqual(atticus.foreground_saved_tool({'name':'Fixture'},approve,action)['text'],'opened');approve.assert_not_called();store.stop()
     self.assertIn('not opened',atticus.foreground_saved_tool({'name':'Fixture'},approve,action)['text']);self.assertEqual(len(opened),1)
@@ -50,6 +50,6 @@ class IntegrationTests(unittest.TestCase):
   app={'bundle_id':'com.example.Fixture','path':'/Applications/Fixture.app','pid':7,'started':'123'}
   clock=[11]
   def slow_lookup(*args,**kwargs): clock[0]=13; return SimpleNamespace(returncode=0,stdout=json.dumps(app))
-  with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'ATTICUS_RUN_ID':'a'*64,'ATTICUS_ASK':d},clear=False), patch.object(atticus,'autonomy_store',wraps=atticus.autonomy_store) as store, patch.object(atticus.approval_channel,'tool_approval',return_value='n') as approve, patch.object(atticus.subprocess,'run',side_effect=slow_lookup) as execute:
+  with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'ATTICUS_RUN_ID':'a'*64,'ATTICUS_ASK':d},clear=False), patch.object(atticus,'autonomy_store',wraps=atticus.autonomy_store) as store, patch.object(atticus,'pref',return_value=False), patch.object(atticus.approval_channel,'tool_approval',return_value='n') as approve, patch.object(atticus.subprocess,'run',side_effect=slow_lookup) as execute:
    result=atticus.foreground_control_request({'action':'focus_app','bundle_id':app['bundle_id']})
    self.assertEqual(result['status'],'cancelled');self.assertEqual(execute.call_count,1);self.assertEqual(clock[0],13);store.assert_called_once();approve.assert_called_once()
