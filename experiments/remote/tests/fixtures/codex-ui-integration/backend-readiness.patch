@@ -1,0 +1,79 @@
+--- a/atticus.py
++++ b/atticus.py
+@@ -4896,9 +4896,29 @@
+     return 'haiku' if mode == 'cheapest' else work_model()
+ 
+ 
+-# Codex has not yet been connected to Atticus's full approval gate, including MCP tools.
+-# Keep live launches disabled until those boundaries are implemented and verified.
+-CODEX_AGENT_READY = False
++# Only versions exercised against the effective restricted configuration are allowed.
++# CodexProvider.run rechecks effective MCP/apps/skills/hooks/read/network boundaries,
++# ChatGPT account and the account-default model before starting any turn.
++CODEX_VERIFIED_CLI_VERSIONS = frozenset({'0.155.1'})
++
++
++def codex_scoped_readiness(row):
++    if platform.system() != 'Darwin': return False, 'Scoped Codex tasks require the verified macOS runtime.'
++    if pref('codexAuthMode', 'existing') != 'existing': return False, 'Choose Existing login for scoped Codex account tasks; API fallback is disabled.'
++    if not isinstance(row, dict) or not isinstance(row.get('folder'), str) or not os.path.isdir(row['folder']):
++        return False, 'Choose and confirm an existing project folder.'
++    try: codex_provider.CodexProvider.validate_scope(row['folder'])
++    except codex_provider.ProviderError as error: return False, str(error)
++    executable = shutil.which('codex')
++    if not executable: return False, 'Install the supported Codex CLI and sign in with your ChatGPT account.'
++    try:
++        version = subprocess.run([executable, '--version'], capture_output=True, text=True, timeout=3)
++    except (OSError, subprocess.SubprocessError): return False, 'Could not verify the installed Codex CLI version.'
++    match = re.fullmatch(r'codex-cli ([0-9]+\.[0-9]+\.[0-9]+)\s*', version.stdout)
++    if version.returncode or not match or match[1] not in CODEX_VERIFIED_CLI_VERSIONS:
++        return False, 'This Codex CLI version has not passed the scoped adapter checks; no task was started.'
++    return True, 'Version and project accepted; account, model and effective tool restrictions must pass adapter preflight.'
++
+ 
+ 
+ def journal_verified_agent(row):
+@@ -5207,8 +5227,9 @@
+     def start_codex(self, row, text):
+         """Run a scoped Codex session under the existing agent registry."""
+         identifier = row['id']
+-        if not CODEX_AGENT_READY:
+-            self.finish(row, 'failed', 'Codex integration is not enabled until its approval controls are complete.'); return
++        ready, reason = codex_scoped_readiness(row)
++        if not ready:
++            self.finish(row, 'failed', reason); return
+         if not row.get('folder'):
+             self.finish(row, 'failed', 'Choose and confirm the project folder before starting Codex.'); return
+         if identifier in self.codex_sessions:
+@@ -5238,7 +5259,7 @@
+                 if row.get('status') == 'needs-you' and (row.get('question') or {}).get('_a') == token:
+                     row.update(status='running', step='Working…', question=None); self.save(row)
+             return pending['decision'] if answered else 'cancel'
+-        auth_mode = pref('codexAuthMode', 'existing')
++        auth_mode = 'existing'  # This scoped path never falls back to API billing.
+         def codex_api_key():
+             helper = os.environ.get('ATTICUS_DEV_KEYCHAIN_HELPER', '')
+             if not helper: raise keychain_store.KeychainError('The development Keychain helper is unavailable.')
+@@ -5673,11 +5694,19 @@
+             if action == 'personal-open': self.personal_open(data)
+             elif action == 'codex-start':
+                 # Dedicated user action: project scope and task must be explicit.
+-                folder, task = data.get('folder'), data.get('task')
+-                if not isinstance(folder, str) or not os.path.isabs(folder) or not os.path.isdir(folder) or not isinstance(task, str) or not task.strip():
++                folder, task, request = data.get('folder'), data.get('task'), data.get('requestId')
++                if data.get('confirmed') is not True or not isinstance(request, str) or not re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}', request):
++                    self.emit({'event':'error', 'error':'Confirm project scope before starting Codex.'}); return
++                if not isinstance(folder, str) or not os.path.isabs(folder) or not os.path.isdir(folder) or not isinstance(task, str) or not task.strip() or len(task) > 4000:
+                     self.emit({'event': 'error', 'error': 'Choose an existing project folder and provide a task.'}); return
++                folder, task = os.path.realpath(folder), task.strip()
++                existing = next((r for r in self.rows.values() if r.get('codexClientRequest') == request), None)
++                if existing:
++                    if existing.get('folder') != folder or existing.get('brief') != task:
++                        self.emit({'event':'error', 'error':'Request identifier conflict; no task was started.'}); return
++                    self.emit({'event':'state', 'agent':existing}); return
+                 row = self.new()
+-                row.update(provider='codex', folder=os.path.realpath(folder), title=agent_title(task), brief=task, context='', status='offered')
++                row.update(provider='codex', folder=folder, title=agent_title(task), brief=task, context='', status='offered', codexClientRequest=request)
+                 self.rows[row['id']] = row; self.save(row); self.start(row['id'], task, evidence=task)
+             elif action == 'select-project' and identifier in self.rows:
+                 row, folder = self.rows[identifier], data.get('folder')

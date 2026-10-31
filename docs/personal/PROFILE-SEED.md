@@ -1,3 +1,5 @@
+> Historical development note. This may describe an earlier build. See the root README, CHANGELOG and RELEASES for current status.
+
 # Local profile import
 
 A seed is a UTF-8 JSON object with exactly `version` and `records`. Version is `1`; records is an array of at most 50 objects, each with exactly `category`, `kind`, and `value`. Supported categories are `basics`, `school_work`, `preferences`, and `notes`. Kind is at most 40 characters; value is at most 300. Values must be single-line, whitespace-normalized text. Kinds must be unique within each category. Example using synthetic data:

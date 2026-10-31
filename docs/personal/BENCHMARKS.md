@@ -1,3 +1,5 @@
+> Historical development note. This may describe an earlier build. See the root README, CHANGELOG and RELEASES for current status.
+
 # Atticus benchmark evidence
 
 Environment: arm64 macOS 26.6.2; Codex CLI 0.155.1; upstream `287b2665f96febf581075a97d366dc5d620f3369`. These measurements do not demonstrate end-to-end task speed.

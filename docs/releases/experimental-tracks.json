@@ -1,0 +1,21 @@
+[
+  {
+    "track": "windows",
+    "commit": "418df8f59f776dc24ada02afd504603d7a7ffa7c",
+    "status": "Windows source only; unbuilt/untested on Windows.",
+    "source_archive": "experiments/ATLAS-windows-418df8f-sanitized-source.tar.gz",
+    "sha256": "e16ad4ba3348a8b28cee246ee6f03e86b50186dfbd0f19617e934a9e2fab7121",
+    "sanitized_text_files": []
+  },
+  {
+    "track": "remote",
+    "commit": "bd86e865b4a8234284c3cb53ecf9e40fd696368c",
+    "status": "Off-by-default experimental development; 58 Python and phone-JS regressions reviewed, no updated app or actual phone/proxy/live task verified.",
+    "source_archive": "experiments/ATLAS-remote-bd86e86-sanitized-source.tar.gz",
+    "sha256": "8ede0d181801f802351c9fe7644820ec807c7132b0e09d550fab1a3d3084fdf4",
+    "sanitized_text_files": [
+      "tests/test_codex_workspace.py",
+      "docs/personal/STATUS.md"
+    ]
+  }
+]

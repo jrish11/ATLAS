@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "bundle_identifier": "com.atticus.personal.dev",
+  "product_name": "Atticus",
+  "architecture": "arm64",
+  "minimum_macos": "26.0",
+  "pi_package": "@earendil-works/pi-coding-agent",
+  "pi_version": "1.4.0",
+  "node_minimum": "22.19.0",
+  "runtime_layout": "Contents/Resources/pi-runtime/{bin/node,node_modules/.bin/pi}",
+  "codex": "separately installed and authenticated locally; production dispatch remains disabled",
+  "signing": "ad-hoc development signature; not notarized",
+  "notices": ["Atticus MIT", "Plip MIT", "Node distribution LICENSE", "license text for every included npm package"],
+  "forbidden_content": ["user profiles", "API keys", "authentication files", "activity logs", "Obsidian vault files"]
+}

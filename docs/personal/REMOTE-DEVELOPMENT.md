@@ -1,3 +1,5 @@
+> Historical development note. This may describe an earlier build. See the root README, CHANGELOG and RELEASES for current status.
+
 # ATLAS Remote development boundary
 
 This is an inactive protocol foundation, not a phone connection. Nothing opens a

@@ -1,0 +1,19 @@
+{
+  "product": "ATLAS",
+  "current_delivered_mac_version": "v3.5",
+  "current_source_commit": "dc1780e84de5beef9c0830063fb035f87915e7f0",
+  "last_updated_utc": "2026-10-31T18:12:15.856585+00:00",
+  "upstream": "https://github.com/SaarthurR/atticus-mac",
+  "upstream_base": "287b2665f96febf581075a97d366dc5d620f3369",
+  "repository_visibility": "public",
+  "github_repository": "https://github.com/jrish11/ATLAS",
+  "windows": "source-only experimental; no Windows binary/runtime verification",
+  "remote": "development-only separate source; not in delivered v3.5 app",
+  "phone_frontend": "not a ready released feature",
+  "public_mac_binary": {
+    "filename": "ATLAS-v3.5-macOS-arm64-PUBLIC.zip",
+    "sha256": "43af1cdb16b4a9fb251b2041cdf9b5238a223446a56e43dbc9376fbf0bb24d8b",
+    "size_bytes": 2123762
+  },
+  "history": "clean upstream ancestry plus sanitized release snapshot commits/tags; raw customized metadata not published"
+}

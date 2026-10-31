@@ -1,3 +1,5 @@
+> Historical development note. This may describe an earlier build. See the root README, CHANGELOG and RELEASES for current status.
+
 # Personal Atticus development status
 
 Local branch `personal-development` is based on upstream commit `287b2665f96febf581075a97d366dc5d620f3369`. Both upstream MIT notices remain. The `upstream` remote is fetch-only. No GitHub repository has been created; public network forks cannot be private and the repository-visibility choice is pending.

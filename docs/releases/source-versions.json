@@ -1,0 +1,93 @@
+[
+  {
+    "version": "v3",
+    "original_source_commit": "cf931b1ceb5d3b9205a841820699ee3c222fbad7",
+    "source_commit_time_utc": "2026-10-31T07:00:18+00:00",
+    "summary": "Scoped autonomy, private approval validation and asynchronous Stop audit; native interaction unverified.",
+    "source_archive": "source-archives/ATLAS-v3-sanitized-source.tar.gz",
+    "source_archive_sha256": "2ed2b4ec770b636df5b8cb367950b8e71798b1646025f9f3544ebdfcb295c760",
+    "sanitized_text_files": [
+      "docs/personal/STATUS.md"
+    ],
+    "tag_status": "public-source tag prepared for verified push",
+    "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
+    "export_commit": "e8895b9df168f223d81b6f8a41f1fd1ff210767c",
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3"
+  },
+  {
+    "version": "v3.1",
+    "original_source_commit": "c2018ceea4e89dc609947e1cc07de174b0af236d",
+    "source_commit_time_utc": "2026-10-31T15:38:30+00:00",
+    "summary": "Native per-session personal-context consent, bounded local folder preview, control-character rejection and isolated runtime setup routing.",
+    "source_archive": "source-archives/ATLAS-v3.1-sanitized-source.tar.gz",
+    "source_archive_sha256": "c0350011d71d0f60a50b9f1d5a58a775c769c5a40ca0f0fae6cad28900d8a55a",
+    "sanitized_text_files": [
+      "docs/personal/STATUS.md"
+    ],
+    "tag_status": "public-source tag prepared for verified push",
+    "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
+    "export_commit": "e81c7a9f41e7131003439caacc5dd460b00d6a26",
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.1"
+  },
+  {
+    "version": "v3.2",
+    "original_source_commit": "5517bbe46a58f4b8f1540cdc525fcb5175006fca",
+    "source_commit_time_utc": "2026-10-31T15:53:20+00:00",
+    "summary": "Experimental account Codex Agents dispatch; task/project confirmation, identity checks across preflight, cancellation/restart records and correlated native denial.",
+    "source_archive": "source-archives/ATLAS-v3.2-sanitized-source.tar.gz",
+    "source_archive_sha256": "b0610ee229ff32bf8de1b6e8ee664af20d4c1607d02d10ae1a803260874d527a",
+    "sanitized_text_files": [
+      "docs/personal/STATUS.md"
+    ],
+    "tag_status": "public-source tag prepared for verified push",
+    "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
+    "export_commit": "b8806cc33d0d3a1fc1ea308f4f915282afd93e43",
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.2"
+  },
+  {
+    "version": "v3.3",
+    "original_source_commit": "37c9a57cff2d84d067109a73d7309d8ac848b743",
+    "source_commit_time_utc": "2026-10-31T16:07:53+00:00",
+    "summary": "Deterministic direct media commands and request-wide denial latch. Named songs remain search plus manual selection.",
+    "source_archive": "source-archives/ATLAS-v3.3-sanitized-source.tar.gz",
+    "source_archive_sha256": "aa8459062b5731cab70c4385cf676bc8d14d4d538b3b075f6700ca5ca76e945b",
+    "sanitized_text_files": [
+      "docs/personal/STATUS.md"
+    ],
+    "tag_status": "public-source tag prepared for verified push",
+    "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
+    "export_commit": "78e4b11d776c82a0d3d66013fab7ff4f72fbe014",
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.3"
+  },
+  {
+    "version": "v3.4",
+    "original_source_commit": "ac03088c850d232cc6d85bd0f8cdc2e54a5ac57e",
+    "source_commit_time_utc": "2026-10-31T16:21:16+00:00",
+    "summary": "Atlas wake-name default and exact legacy migration; preserve custom phrases/listening switch; restart recognition hint on save; native Codex folder picker.",
+    "source_archive": "source-archives/ATLAS-v3.4-sanitized-source.tar.gz",
+    "source_archive_sha256": "bb8628210d742f9bf3579c8ebb0413a00c6847c9d298531875ca8411394af8e5",
+    "sanitized_text_files": [
+      "docs/personal/STATUS.md"
+    ],
+    "tag_status": "public-source tag prepared for verified push",
+    "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
+    "export_commit": "22ebdc0d82eecc227739db31a841a064c6c20577",
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.4"
+  },
+  {
+    "version": "v3.5",
+    "original_source_commit": "dc1780e84de5beef9c0830063fb035f87915e7f0",
+    "source_commit_time_utc": "2026-10-31T16:55:19+00:00",
+    "summary": "Conservative explicit Codex project grammar, fresh exclusive per-task workspaces, registry validation/timeout, one-screen Autopilot target review and v3.5 About label.",
+    "source_archive": "source-archives/ATLAS-v3.5-sanitized-source.tar.gz",
+    "source_archive_sha256": "158ae2c35869822757c9dd9581ca0949b89e7a3afb663f9a9918f675f9abe92e",
+    "sanitized_text_files": [
+      "tests/test_codex_workspace.py",
+      "docs/personal/STATUS.md"
+    ],
+    "tag_status": "public-source tag prepared for verified push",
+    "binary_status": "only v3.5 has separately verified public-safe binary; prior private binaries excluded",
+    "export_commit": "fedb933ad892f5e19d73d16ab25f0fe63aa1c6de",
+    "github_source_url": "https://github.com/jrish11/ATLAS/tree/v3.5"
+  }
+]
