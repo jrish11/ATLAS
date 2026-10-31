@@ -640,10 +640,17 @@ def save_skills(sk):
     """Write learned tasks; one unused for 30 days goes (shortcuts the user made stay)."""
     old = time.strftime('%Y-%m-%d', time.localtime(time.time() - 30 * 86400))
     sk = {k: v for k, v in sk.items() if v.get('mine') or max(v.get('used', ''), v.get('at', '')) >= old}
-    os.makedirs(DIR, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=DIR, delete=False) as f:
-        json.dump(sk, f, indent=1)
-    os.replace(f.name, SKILLS)   # a cancelled write cannot truncate the learned tasks
+    # Atomic replacement requires the temporary file on the destination volume.
+    folder = os.path.dirname(os.path.abspath(SKILLS))
+    os.makedirs(folder, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=folder, delete=False) as f:
+            temporary = f.name
+            json.dump(sk, f, indent=1)
+        os.replace(temporary, SKILLS)   # a cancelled write cannot truncate the learned tasks
+    finally:
+        if temporary and os.path.exists(temporary): os.unlink(temporary)
 
 
 def learn(task, cmds, reply):

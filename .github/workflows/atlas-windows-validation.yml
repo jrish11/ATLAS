@@ -39,7 +39,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run Windows and isolated Codex regression tests
         run: |
-          foreach ($pattern in @('test_atticus.py', 'test_learning.py', 'test_javascript.py', 'test_codex_account.py', 'test_atlas_codex_task.py')) {
+          foreach ($pattern in @('test_atticus.py', 'test_learning.py', 'test_skills_atomic.py', 'test_javascript.py', 'test_codex_account.py', 'test_atlas_codex_task.py')) {
             python -m unittest discover -s tests -p $pattern -v
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
