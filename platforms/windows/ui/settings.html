@@ -489,6 +489,14 @@
   };
 
   const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const integrationKeyURL = (address, path) => {
+    try {
+      const base = new URL(address.trim().replace(/\/$/, ''));
+      if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || (path && !path.startsWith('/')) || path.startsWith('//') || /[\\\x00-\x1f\x7f]/.test(path)) return null;
+      const target = new URL(base.href.replace(/\/$/, '') + path);
+      return target.origin === base.origin && ['http:', 'https:'].includes(target.protocol) ? target.href : null;
+    } catch (_) { return null; }
+  };
   let ownKind = 'api';
   document.querySelectorAll('#ownkind button').forEach(b => b.onclick = () => {
     ownKind = b.dataset.v;
@@ -531,8 +539,8 @@
         const fill = g.querySelector('.fill'), url = () => (g.querySelector('input[data-k$="url"]')?.value || '').trim().replace(/\/$/, '');
         g.querySelector('.toggle').onclick = () => { fill.hidden = !fill.hidden; };
         const kp = g.querySelector('.keypage');
-        kp.onmouseenter = kp.onfocus = () => { kp.href = url() ? url() + g.dataset.keyPage : '#'; };
-        kp.onclick = e => { if (!url()) { e.preventDefault(); g.querySelector('.intres').textContent = 'Fill in the address first.'; } };
+        kp.onmouseenter = kp.onfocus = () => { kp.href = integrationKeyURL(url(), g.dataset.keyPage || '') || '#'; };
+        kp.onclick = e => { const target = integrationKeyURL(url(), g.dataset.keyPage || ''); if (!target) { e.preventDefault(); g.querySelector('.intres').textContent = 'Enter a valid HTTP or HTTPS address first.'; } else { kp.href = target; } };
         g.querySelector('.save').onclick = () => {
           const values = {}; g.querySelectorAll('input').forEach(i => values[i.dataset.k] = i.value);
           g.querySelector('.intres').textContent = 'Testing…';
