@@ -4553,6 +4553,19 @@ def private_json(path, data):
         if os.path.exists(tmp): os.unlink(tmp)
 
 
+def private_text(path, text):
+    """Replace a private text file without creating a readable intermediate."""
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', dir=os.path.dirname(path), delete=False) as f:
+            tmp = f.name
+            os.fchmod(f.fileno(), 0o600)
+            f.write(text)
+        os.replace(tmp, path)
+    finally:
+        if tmp and os.path.exists(tmp): os.unlink(tmp)
+
+
 def saved_chats():
     try:
         with open(os.path.join(DIR, 'chats.json')) as f: return json.load(f)
@@ -5340,8 +5353,7 @@ class Agents:
                     private_json(os.path.join(agent_gate_dir(row['directory']), 'uncertain-write'), True)
                 if evidence is not None or initial is not None or not os.path.exists(path):
                     request = evidence if evidence is not None else initial or row['brief']
-                    with open(path, 'w') as f: f.write(request)
-                    os.chmod(path, 0o600)
+                    private_text(path, request)
                     with open(path) as f: words = f.read() if evidence is not None or initial is not None else ''
                 else: words = ''
                 # Only the user's words (or a moved ask that already worked in front) let an agent come forward.
