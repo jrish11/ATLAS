@@ -1,8 +1,8 @@
 # Signed update implementation checkpoint
 
-This component is development-only. Delivered ATLAS v3.6 still uses manual
-replacement. No updater, listener, signing key, feed or automatic installation
-has been enabled by this work.
+This component is development-only. Public ATLAS v3.6 and the separately
+delivered First Light RC builds still use manual replacement. No updater,
+signing key, feed or automatic installation has been enabled by this component.
 
 ## Existing implementation and reuse
 
@@ -64,8 +64,9 @@ verifier, sequence receipt, executable or approval result.
    `ATLASUpdateEpoch`. The delivered v3.6 bundle has build1 and no epoch key;
    treat that reviewed legacy lineage as epoch0 only during the explicit native
    migration, never infer order from its upstream short version1.5.4. The
-   proposed First Light native build advances to2; updater activation additionally
-   needs its explicit epoch property and trusted receipt integration.
+   reviewed First Light RC2 has native build3 and explicit epoch1. This is
+   metadata evidence, not updater activation: trusted receipt integration and
+   the actual installer still remain to implement and verify.
 4. An approved GitHub asset URL can redirect only through the observed official
    release asset transport. A future downloader must allowlist exact HTTPS
    redirect hosts from verified vendor documentation, cap redirects and bytes,
@@ -108,6 +109,11 @@ Real update/cancel/crash/rollback tests need two separate disposable signed app
 fixtures and a temporary installation directory before any owner installation.
 
 ## Exact owner gate before production activation
+
+Signing approval is not the only remaining work. The downloader, maintained
+installer integration, native update UI, trusted receipts, crash reconciliation
+and real update/rollback tests above are still incomplete. Do not describe this
+component as ready merely because a key has been approved or created.
 
 The owner must approve creation/use of ONE persistent release-signing identity
 and its secure custody/backup. Provision it locally using the supported signing
