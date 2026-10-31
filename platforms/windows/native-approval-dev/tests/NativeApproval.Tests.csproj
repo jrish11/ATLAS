@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../NativeApprovalSession.cs" Link="NativeApprovalSession.cs" />
+    <Compile Include="../NativeApprovalDialog.cs" Link="NativeApprovalDialog.cs" />
+    <Compile Include="../PrivateApprovalHost.cs" Link="PrivateApprovalHost.cs" />
+    <Compile Include="../WindowsProjectGuard.cs" Link="WindowsProjectGuard.cs" />
+    <Compile Include="../CodexProcessChannel.cs" Link="CodexProcessChannel.cs" />
+    <Compile Include="../NativeCodexTurn.cs" Link="NativeCodexTurn.cs" />
+    <Compile Include="NativeApprovalTests.cs" />
+  </ItemGroup>
+</Project>

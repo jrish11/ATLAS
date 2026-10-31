@@ -1,12 +1,11 @@
-# Copy this file to the public repository's .github/workflows/ and the reviewed
-# Windows source to platforms/windows/. Manual dispatch only: publishing does not run CI.
-name: ATLAS Windows validation
+name: ATLAS native approval development tests
 "on":
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  windows-validation:
+  native-development:
+    if: github.ref == 'refs/heads/development/windows-native-approval'
     runs-on: windows-latest
     timeout-minutes: 20
     defaults:
@@ -17,93 +16,33 @@ jobs:
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
-      - name: Check out reviewed source
+      - name: Check out reviewed development source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - name: Set up Python
+      - name: Set up Python for fake processes
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.13.17'
-      - name: Set up .NET SDK
+      - name: Set up exact .NET SDK
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: '10.0.403'
-      - name: Initialize isolated test profile
+      - name: Initialize disposable test scope
         run: |
-          $profile = Join-Path $env:RUNNER_TEMP 'atlas-test-state'
-          New-Item -ItemType Directory -Force $profile | Out-Null
-          "ATTICUS_DIR=$profile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Install Python dependencies
+          $root = Join-Path $env:RUNNER_TEMP 'atlas-native-development-tests'
+          if (Test-Path -LiteralPath $root) { throw 'Scratch root unexpectedly exists.' }
+          New-Item -ItemType Directory $root | Out-Null
+          "ATLAS_NATIVE_TEST_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ATTICUS_DIR=$root/profile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Run no-inference Python protocol fixtures
         run: |
-          python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r requirements-windows-lock.txt
+          python -m unittest discover -s native-approval-dev/tests -p 'test_*.py' -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run Windows and isolated Codex regression tests
+      - name: Compile and run native development fixtures
         run: |
-          foreach ($pattern in @('test_atticus.py', 'test_learning.py', 'test_skills_atomic.py', 'test_javascript.py', 'test_codex_account.py', 'test_atlas_codex_task.py', 'test_atlas_codex_provider.py', 'test_python_notices.py', 'test_dotnet_notices.py', 'test_preview_privacy.py', 'test_preview_boundary.py')) {
-            python -m unittest discover -s tests -p $pattern -v
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-          python atticus.py --selftest
+          $python = (Get-Command python).Source
+          $worker = (Resolve-Path 'native-approval-dev/tests/fake_pipe_worker.py').Path
+          $provider = (Resolve-Path 'native-approval-dev/tests/fake_native_codex.py').Path
+          dotnet run --project native-approval-dev/tests/NativeApproval.Tests.csproj -- $python $worker $provider
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Publish development build
-        run: |
-          dotnet publish win/Atticus -c Release -r win-x64 --self-contained -p:DebugType=none -o "$env:RUNNER_TEMP\atlas-build" --nologo
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run native self-test
-        run: |
-          $app = Join-Path $env:RUNNER_TEMP 'atlas-build\Atticus.exe'
-          $result = Start-Process -FilePath $app -ArgumentList '--selftest' -PassThru -Wait
-          if ($result.ExitCode -ne 0) { throw "Native self-test failed: $($result.ExitCode)" }
-      - name: Check development build script syntax
-        run: |
-          $errors = $null
-          $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'build-atlas.ps1'), [ref]$null, [ref]$errors)
-          if ($errors) { $errors; exit 1 }
-
-      - name: Test explicit setup helper without installs
-        run: |
-          python -m unittest discover -s ../../scripts/personal-release -p test_windows_first_run.py -v
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m unittest discover -s ../../scripts/personal-release -p test_windows_external_stage.py -v
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Assemble external-Python candidate and verify relocation
-        run: |
-          $notices = Join-Path $env:RUNNER_TEMP 'atlas-reviewed-notices'
-          New-Item -ItemType Directory $notices | Out-Null
-          Copy-Item notices/dotnet-10.0.14, notices/nuget-ci3 -Destination $notices -Recurse
-          $receipt = Join-Path $env:RUNNER_TEMP 'atlas-compiled-receipt.json'
-          python -c "import hashlib,json,pathlib; r=pathlib.Path(r'$env:RUNNER_TEMP/atlas-build'); pathlib.Path(r'$receipt').write_text(json.dumps({p.relative_to(r).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in r.rglob('*') if p.is_file()}))"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $candidate = Join-Path $env:RUNNER_TEMP 'ATLAS-Windows-Setup-Required'
-          python ../../scripts/personal-release/windows_external_stage.py --build "$env:RUNNER_TEMP/atlas-build" --source . --notices $notices --plip ../../LICENSE-Plip --output $candidate --receipt $receipt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $relocated = Join-Path $env:RUNNER_TEMP 'relocated/ATLAS Windows Preview'
-          New-Item -ItemType Directory (Split-Path $relocated) | Out-Null
-          Move-Item -LiteralPath $candidate -Destination $relocated
-          $local = [Environment]::GetFolderPath('LocalApplicationData')
-          if (Test-Path (Join-Path $local 'ATLAS/venv')) { throw 'Runner runtime already exists.' }
-          # Explicit setup input on this disposable CI runner only.
-          '' | python (Join-Path $relocated 'Setup-Windows.py')
-          if ($LASTEXITCODE -ne 0 -or (Test-Path (Join-Path $local 'ATLAS/venv'))) { throw 'Cancellation changed runtime.' }
-          'SETUP' | python (Join-Path $relocated 'Setup-Windows.py')
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $py = Join-Path $local 'ATLAS/venv/Scripts/python.exe'
-          & $py -I -c 'import mss, PIL, psutil, uiautomation, comtypes; assert PIL.__version__ == "13.0.0"'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $py -X utf8 (Join-Path $relocated 'atticus.py') --selftest
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $native = Start-Process -FilePath (Join-Path $relocated 'Atticus.exe') -ArgumentList '--selftest' -Wait -PassThru
-          if ($native.ExitCode -ne 0) { throw 'Relocated native self-test failed.' }
-          python -c "import hashlib,json,pathlib; r=pathlib.Path(r'$relocated'); m=json.loads((r/'MANIFEST.json').read_text()); assert {p.relative_to(r).as_posix() for p in r.rglob('*') if p.is_file()} == set(m)|{'MANIFEST.json'}; assert all(hashlib.sha256((r/p).read_bytes()).hexdigest()==h for p,h in m.items()); assert not (r/'runtime').exists(); assert not (r/'atticus.json').exists()"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Compress-Archive -Path $relocated -DestinationPath "$env:RUNNER_TEMP/ATLAS-Windows-x64-Experimental-Setup-Required.zip"
-      - name: Retain successful assembled candidate for review
-        if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ATLAS-Windows-x64-ASSEMBLED-${{ github.sha }}
-          path: ${{ runner.temp }}/ATLAS-Windows-x64-Experimental-Setup-Required.zip
-          retention-days: 3
-          if-no-files-found: error
-          include-hidden-files: false
