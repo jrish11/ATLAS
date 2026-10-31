@@ -1,0 +1,67 @@
+name: ATLAS Windows 11 ARM MXC check
+"on":
+  push:
+    branches:
+      - development/mxc-windows11-arm-check
+permissions:
+  contents: read
+jobs:
+  native-development:
+    if: github.ref == 'refs/heads/development/mxc-windows11-arm-check'
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: platforms/windows
+    env:
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Check out reviewed development source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Set up Python for fake processes
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.13.17'
+          architecture: 'x64'
+      - name: Set up exact .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '10.0.403'
+      - name: Initialize disposable test scope
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'atlas-native-development-tests'
+          if (Test-Path -LiteralPath $root) { throw 'Scratch root unexpectedly exists.' }
+          New-Item -ItemType Directory $root | Out-Null
+          "ATLAS_NATIVE_TEST_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ATTICUS_DIR=$root/profile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Run no-inference Python protocol fixtures
+        run: |
+          python -m unittest discover -s native-approval-dev/tests -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile and run native development fixtures
+        run: |
+          $python = (Get-Command python).Source
+          $worker = (Resolve-Path 'native-approval-dev/tests/fake_pipe_worker.py').Path
+          $provider = (Resolve-Path 'native-approval-dev/tests/fake_native_codex.py').Path
+          dotnet run --project native-approval-dev/tests/NativeApproval.Tests.csproj -- $python $worker $provider
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test official archive staging guards
+        run: |
+          python -m unittest discover -s ../../scripts/personal-release -p test_codex_probe_stage.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify official CLI package and probe explicit MXC boundaries
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'codex-0.166.0-windows.tar.gz'
+          Invoke-WebRequest -Uri 'https://github.com/openai/codex/releases/download/rust-v0.166.0/codex-package-x86_64-pc-windows-msvc.tar.gz' -OutFile $archive -TimeoutSec 180
+          $root = Join-Path $env:RUNNER_TEMP 'atlas-official-codex-probe'
+          $package = python ../../scripts/personal-release/stage_codex_probe_package.py --archive $archive --output $root
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'Official archive, exact manifest and six executables passed SHA256 checks.'
+          $scratch = Join-Path $env:ATLAS_NATIVE_TEST_ROOT 'official-mxc-scope'
+          New-Item -ItemType Directory $scratch | Out-Null
+          dotnet run --no-build --project native-approval-dev/tests/NativeApproval.Tests.csproj -- --mxc-probe $package $scratch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
