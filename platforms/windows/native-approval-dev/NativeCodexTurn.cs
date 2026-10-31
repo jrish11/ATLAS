@@ -54,6 +54,9 @@ internal sealed class NativeCodexTurn
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (!Path.IsPathFullyQualified(system32) || !Path.IsPathFullyQualified(windows) || !Path.IsPathFullyQualified(userProfile)) throw new InvalidOperationException("Required platform paths unavailable.");
         info.Environment.Clear();
+        string systemDrive = Path.GetPathRoot(windows)?.TrimEnd('\\');
+        if (systemDrive == null || !Regex.IsMatch(systemDrive, "^[A-Za-z]:$")) throw new InvalidOperationException("System drive unavailable.");
+        info.Environment["SystemDrive"] = systemDrive;
         info.Environment["SystemRoot"] = windows;
         info.Environment["WINDIR"] = windows;
         info.Environment["PATH"] = system32;

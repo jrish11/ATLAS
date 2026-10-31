@@ -146,6 +146,7 @@ static class NativeApprovalTests
                 var start = NativeCodexTurn.CreateProviderStart(Path.GetFullPath(args[0]), "atlas_" + Guid.NewGuid().ToString("N"));
                 foreach (string key in canaries) Require(!start.Environment.ContainsKey(key), "secret/proxy environment absent: " + key);
                 Require(start.Environment.ContainsKey("SystemRoot") && start.Environment.ContainsKey("USERPROFILE"), "required platform environment");
+                Require(start.Environment["SystemDrive"] == Path.GetPathRoot(Environment.SystemDirectory).TrimEnd('\\'), "provider system drive supplied");
             }
             finally { foreach (var pair in original) Environment.SetEnvironmentVariable(pair.Key, pair.Value); }
             string layoutRoot = Path.Combine(scratch, "layout-test");
@@ -158,6 +159,7 @@ static class NativeApprovalTests
             string isolatedProfile = Path.GetFullPath(Path.Combine(layoutRoot, "profile"));
             string codexHome = Path.GetFullPath(probeInfo.Environment["CODEX_HOME"]);
             Require(Directory.Exists(codexHome) && codexHome == Path.Combine(isolatedProfile, ".codex"), "isolated CODEX_HOME exists within profile");
+            Require(probeInfo.Environment["SystemDrive"] == Path.GetPathRoot(Environment.SystemDirectory).TrimEnd('\\'), "probe system drive supplied");
             Require(probeInfo.ArgumentList.Contains("permissions.atlas_probe.network.enabled=false") && probeInfo.ArgumentList.Contains("windows.sandbox=\"mxc\""), "explicit MXC network-disabled policy");
             string commandText = File.ReadAllText(Path.Combine(layoutRoot, "project", "fixture.cmd"));
             Require(commandText.Contains("127.0.0.1", StringComparison.Ordinal) && commandText.Contains("32123", StringComparison.Ordinal) && commandText.Contains("exit 33", StringComparison.Ordinal), "loopback denial fixture distinguishes socket errors");

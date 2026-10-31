@@ -67,7 +67,9 @@ internal static class NativeSandboxProbe
         var info = new ProcessStartInfo(executable) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true, WorkingDirectory = project };
         foreach (string arg in new[] { "-c", "windows.sandbox=\"mxc\"", "-c", "permissions.atlas_probe.filesystem={\":minimal\"=\"read\",\":workspace_roots\"=\"write\"}", "-c", "permissions.atlas_probe.network.enabled=false", "-c", "default_permissions=\"atlas_probe\"", "sandbox", "--include-managed-config", "--permission-profile", "atlas_probe", "--", Path.Combine(system, "cmd.exe"), "/d", "/c", script }) info.ArgumentList.Add(arg);
         info.Environment.Clear();
-        info.Environment["SystemRoot"] = windows; info.Environment["WINDIR"] = windows; info.Environment["PATH"] = system;
+        string systemDrive = Path.GetPathRoot(windows)?.TrimEnd('\\');
+        if (systemDrive == null || systemDrive.Length != 2 || !char.IsAsciiLetter(systemDrive[0]) || systemDrive[1] != ':') throw new InvalidOperationException("System drive unavailable.");
+        info.Environment["SystemDrive"] = systemDrive; info.Environment["SystemRoot"] = windows; info.Environment["WINDIR"] = windows; info.Environment["PATH"] = system;
         info.Environment["USERPROFILE"] = profile; info.Environment["APPDATA"] = Path.Combine(profile, "appdata");
         info.Environment["LOCALAPPDATA"] = Path.Combine(profile, "local"); info.Environment["TEMP"] = temp; info.Environment["TMP"] = temp; info.Environment["CODEX_HOME"] = Path.Combine(profile, ".codex");
         return info;
