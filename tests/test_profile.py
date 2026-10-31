@@ -167,7 +167,7 @@ atticus.remember_rule(sys.argv[1])
         results = [(child, child.communicate(timeout=10)) for child in children]
         for child, (_, err) in results:
             self.assertEqual(child.returncode, 0, err)
-        self.assertEqual((self.root / 'memory.md').read_text(), '- Keep replies concise\n')
+        self.assertEqual(atticus.memory_rules(), ['Keep replies concise'])
         self.assertEqual((self.root / 'memory.md').stat().st_mode & 0o777, 0o600)
 
     def test_screen_injection_cannot_mutate_and_sensitive_values_never_leave_storage(self):
@@ -283,7 +283,7 @@ atticus.remember_rule(sys.argv[1])
         run = lambda *a: subprocess.run([atticus.sys.executable, atticus.ME, *a], env=env, capture_output=True, text=True, timeout=30).stdout.strip()
         self.assertEqual(run('--rule', 'Use Chrome', 'Use Chrome for browsing'), 'saved')
         self.assertEqual(run('--forget', 'Work mode: Orca full screen'), 'forgot 1 line(s)')   # not the longer rule that contains it
-        self.assertEqual((self.root / 'memory.md').read_text(), '- Work mode: Orca full screen, Chrome on the laptop\n- Use Chrome for browsing\n')
+        self.assertEqual(atticus.memory_rules(), ['Work mode: Orca full screen, Chrome on the laptop', 'Use Chrome for browsing'])
 
 
 if __name__ == '__main__':

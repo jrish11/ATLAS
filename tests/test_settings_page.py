@@ -67,6 +67,32 @@ class SettingsPageTests(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         return json.loads(p.stdout.strip().splitlines()[-1])
 
+    def test_codex_key_is_separate_and_auth_mode_is_explicit(self):
+        out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space',keychainMode:true,codexAuthMode:'existing',codexApiKeyConfigured:true}});
+            const field=$('codexApiKey');field.value='fixture-codex-key';field.dispatchEvent(new Event('change'));
+            document.querySelector('[data-k=codexAuthMode] [data-v=api_key]').click();
+            return [field.value,P.codexApiKey||'', $('codexKeychainSection').hidden];""")
+        self.assertEqual(out['result'],['','',False])
+        self.assertIn({'do':'set','k':'codexApiKey','v':'fixture-codex-key'},out['posts'])
+        self.assertIn({'do':'set','k':'codexAuthMode','v':'api_key'},out['posts'])
+
+    def test_keychain_mode_clears_field_and_never_keeps_key_in_preferences(self):
+        out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space',keychainMode:true,apiKeyConfigured:true}});
+            const field=$('apiKey'); field.value='fixture-secret'; field.dispatchEvent(new Event('change'));
+            return [field.value, P.apiKey || '', $('keychainControls').hidden, $('deleteProviderKey').hidden];""")
+        self.assertEqual(out['result'], ['', '', False, False])
+        self.assertIn({'do':'set','k':'apiKey','v':'fixture-secret'}, out['posts'])
+
+    def test_opt_in_journal_settings_save_without_changing_other_preferences(self):
+        out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space',journalEnabled:false,journalVault:'/vault',journalExcludedFolders:['/private'],journalExcludedTerms:['school']}});
+            const before=[document.querySelector('[data-k=journalEnabled]').checked,$('journalVault').value,$('journalExcludedFolders').value];
+            $('journalVault').value='/new-vault'; $('journalVault').dispatchEvent(new Event('change'));
+            $('journalExcludedTerms').value='private; school'; $('journalExcludedTerms').dispatchEvent(new Event('change'));
+            return before;""")
+        self.assertEqual(out['result'], [False, '/vault', '/private'])
+        self.assertIn({'do':'set','k':'journalVault','v':'/new-vault'}, out['posts'])
+        self.assertIn({'do':'set','k':'journalExcludedTerms','v':['private','school']}, out['posts'])
+
     def test_wake_word_defaults_off_and_saves_one_toggle(self):
         out = self.page("""const wake=document.querySelector('[data-k=wakeWord]');
             const before=wake.checked; wake.click(); await tick(20);

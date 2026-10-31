@@ -61,13 +61,14 @@ class LearningEndToEndTests(Ask):
     def test_said_and_done_is_learned_and_close_wordings_replay_instantly(self):
         said, pill, model = self.ask('Open the fixture board site', 'Opened the fixture board.', [f'{atticus.SHOW} "{URL}"'])
         self.assertTrue(model)
-        self.assertEqual(pill, 'Learned: Say “Open the fixture board site” any time.')
+        self.assertEqual(pill, 'Saved as a candidate; confirm the shortcut before instant replay.')
+        for _ in range(2):
+            self.assertTrue(self.ask('Open the fixture board site', 'Opened the fixture board.', [f'{atticus.SHOW} "{URL}"'])[2])
         for words in ('open the fixture board site', 'Hey Atticus, can you open the fixture board site please?', 'open fixture board site'):
             self.show.reset_mock()
             said, pill, model = self.ask(words)
-            self.assertFalse(model, words)   # instant: no model
-            self.assertEqual(said, 'Opened the fixture board.')
-            self.show.assert_called_once_with(URL, False)
+            self.assertTrue(model, words)   # repeated observation never substitutes for owner confirmation
+            self.show.assert_not_called()
 
     def test_unpunctuated_when_i_say_saves_the_trigger_words_and_replays_them(self):
         # Oct 22: "when I say deep work full screen Chrome …" had no comma, so the whole sentence was saved and "deep work" never replayed
@@ -109,11 +110,13 @@ class LearningEndToEndTests(Ask):
         self.assertTrue(model)
         self.assertEqual(said, 'Opened the board home.')
         self.assertEqual(atticus.skills()['open the fixture board site']['cmds'], [fixed])
-        self.assertEqual(pill, 'Learned: Say “open the fixture board site” any time.')
+        self.assertEqual(pill, 'Saved as a candidate; confirm the shortcut before instant replay.')
+        for _ in range(2):
+            self.assertTrue(self.ask('open the fixture board site', 'Opened the board home.', [fixed])[2])
         self.show.side_effect = lambda target, bg=False: f'opened {target}'
         self.show.reset_mock()
-        self.assertFalse(self.ask('open the fixture board site')[2])
-        self.show.assert_called_once_with('https://board.example/home', False)
+        self.assertTrue(self.ask('open the fixture board site')[2])
+        self.show.assert_not_called()
 
     def test_a_failed_replay_whose_redo_also_fails_is_never_replayed_again(self):
         atticus.save_skills({'open the fixture board site': {'cmds': [f'{atticus.SHOW} "{URL}"'], 'reply': 'Opened.', 'mine': True}})
@@ -141,15 +144,17 @@ class LearningEndToEndTests(Ask):
         # names the instant mover can't resolve, so the model arranged them and the layout was learned
         self.ask('alpha pane on the left and beta pane on the right', 'Arranged.', [f'{atticus.PLACE} "Alpha" left current + "Beta" right current'])
         self.assertIn('alpha pane on the left and beta pane on the right', atticus.skills())
+        for _ in range(2):
+            self.assertTrue(self.ask('alpha pane on the left and beta pane on the right', 'Arranged.', [f'{atticus.PLACE} "Alpha" left current + "Beta" right current'])[2])
         self.place.reset_mock()
         said, pill, model = self.ask('beta pane on the left and alpha pane on the right', 'Arranged the other way.')
         self.assertTrue(model)   # the same words in another order are another layout: never the learned one
         self.place.assert_not_called()
-        self.assertFalse(self.ask('on the right beta pane and on the left alpha pane')[2])   # back to front, each pane keeps its side
-        self.place.assert_called_once_with(['Alpha', 'left', 'current', '+', 'Beta', 'right', 'current'])
+        self.assertTrue(self.ask('on the right beta pane and on the left alpha pane')[2])
+        self.place.assert_not_called()   # even repeated observations require confirmation
         mode = "osascript -e 'tell application \"System Events\" to tell appearance preferences to set dark mode to true'"
-        self.ask('switch on dark mode', 'Dark mode is on.', [mode])
-        self.assertFalse(self.ask('dark mode switch on')[2])   # only a word the commands never use moved: still instant
+        for _ in range(3): self.assertTrue(self.ask('switch on dark mode', 'Dark mode is on.', [mode])[2])
+        self.assertTrue(self.ask('dark mode switch on')[2])   # unconfirmed script returns to the normal gate
         before = atticus.skills()
         self.ask('Close this', 'Closed.', ["osascript -e 'tell application \"Other Fixture\" to close window 1'"])   # "this" depends on the moment
         self.ask('Hide fixture board', 'I could not hide it.', ["osascript -e 'tell application \"Fixture Board\" to set visible to false'"])
@@ -239,11 +244,11 @@ class OpenAppsAndSitesTests(Ask):
         said, pill, model = self.ask(words, 'Safari ist offen.', [f'{atticus.SHOW} "Safari"'])
         self.assertTrue(model)
         self.assertEqual(said, 'Safari ist offen.')
+        for _ in range(2): self.assertTrue(self.ask(words, 'Safari ist offen.', [f'{atticus.SHOW} "Safari"'])[2])
         self.show.reset_mock()
         said, pill, model = self.ask(words)
-        self.assertFalse(model)
-        self.assertEqual(said, 'Safari ist offen.')
-        self.show.assert_called_once_with('Safari', False)   # front, as the model opened it; the focus words are English-only
+        self.assertTrue(model)   # still needs owner confirmation
+        self.show.assert_not_called()
 
 
 if __name__ == '__main__':

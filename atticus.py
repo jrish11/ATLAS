@@ -1,5 +1,5 @@
 #!/bin/sh
-"exec" "python3" "-c" "import importlib.util as u,os,sys;sys.argv=sys.argv[1:];sys.path[0]=os.path.dirname(os.path.abspath(sys.argv[0]));sys.pycache_prefix=os.path.expanduser('~/Library/Caches/Atticus');s=u.spec_from_file_location('__main__',sys.argv[0]);m=sys.modules['__main__']=u.module_from_spec(s);s.loader.exec_module(m)" "$0" "$@"   # sh: run from cached bytecode (a plain run recompiles this file, ~70 ms per helper call); Python: a no-op string
+"exec" "python3" "-c" "import importlib.util as u,os,sys;sys.argv=sys.argv[1:];sys.path[0]=os.path.dirname(os.path.abspath(sys.argv[0]));sys.pycache_prefix=os.path.join(os.environ.get('ATTICUS_DIR') or os.path.expanduser('~/.config/atticus'),'pycache');s=u.spec_from_file_location('__main__',sys.argv[0]);m=sys.modules['__main__']=u.module_from_spec(s);s.loader.exec_module(m)" "$0" "$@"   # sh: run from cached bytecode (a plain run recompiles this file, ~70 ms per helper call); Python: a no-op string
 """Atticus: a small Mac helper run by an AI client (Claude Code by default, Devin, or Pi). Idea from Caleb Writes Code's "Atticus".
 
 Hold Control+Option+Space (Atticus.app) -> talk -> let go. It answers questions (web, files, screen) and does
@@ -27,6 +27,15 @@ import platform
 import fcntl
 import atexit, base64, difflib, hashlib, html, json, plistlib, shutil, threading, os, re, select, signal, stat, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 import unicodedata
+import personal_commands
+import memory_rules_store
+import codex_provider
+import vault_journal
+import keychain_store
+import foreground_openai
+import foreground_control
+import approval_channel
+import autonomy_policy
 import uuid
 import traceback
 from functools import lru_cache, wraps
@@ -46,7 +55,7 @@ GUMROAD_PRODUCT = ''   # Gumroad product ID (4o1C13Q132kPu-TW7b-sAA== when sales
 BUY = 'https://3370759087892.gumroad.com/l/atticus'
 KEY_FILE = os.path.join(DIR, 'license')
 # Anonymous counts, timings and error locations under a random install ID; never asks or screen content. Off in Settings → Privacy. Empty key = off.
-POSTHOG_KEY = os.environ.get('ATTICUS_POSTHOG_KEY', 'phc_mGpLLzJtYTToBF8uSkqkUxMMG9ANmQWKDBnpsRDmzy6P')   # public capture token; empty override disables
+POSTHOG_KEY = ''  # Personal ATLAS fork never sends upstream telemetry.
 APP_COMMIT = 'unknown'
 try:
     APP_VERSION = Path(ME).with_name('VERSION').read_text().strip()
@@ -122,7 +131,23 @@ def _profile_locked(operation):
     return locked
 
 
+def _profile_store_supported(raw):
+    """Only known fields may be rewritten by the upstream profile writers."""
+    if not isinstance(raw, dict): return False
+    if raw.get('version') == 2:
+        return (set(raw) == {'version', 'facts'} and isinstance(raw['facts'], list) and
+                all(isinstance(f, dict) and not (set(f) - {'id', 'category', 'kind', 'value', 'source', 'date', 'sensitive'}) for f in raw['facts']))
+    return not (set(raw) - {'name', 'about', 'facts'}) and isinstance(raw.get('facts', []), list) and all(isinstance(f, str) for f in raw.get('facts', []))
+
+
 def _save_profile(profile):
+    if os.path.islink(ME_FILE): raise ValueError('Symlinked profile is unsupported.')
+    missing = object()
+    try:
+        with open(ME_FILE) as source: raw = json.load(source)
+    except FileNotFoundError: raw = missing
+    except (OSError, ValueError) as error: raise ValueError('Profile cannot be safely rewritten.') from error
+    if raw is not missing and not _profile_store_supported(raw): raise ValueError('Unknown profile fields; no changes made.')
     folder = os.path.dirname(ME_FILE)
     os.makedirs(folder, mode=0o700, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode='w', dir=folder, delete=False) as f:
@@ -159,7 +184,7 @@ def me():
     except (OSError, ValueError):
         return {'version': 2, 'facts': []}
     profile, migrated = _normalize_profile(raw, legacy_date)
-    if migrated:
+    if migrated and _profile_store_supported(raw):
         try:
             _save_profile(profile)
         except OSError:
@@ -395,6 +420,17 @@ def profile_import(snapshot=None):
 
 
 def pref(key, default):
+    # A new personal profile starts on the foreground OpenAI route. Existing or
+    # unreadable settings files are never rewritten or silently migrated here.
+    if os.path.abspath(DIR) == os.path.join(HOME, '.config/atticus-personal-dev') and not os.path.lexists(PREFS):
+        fresh={'client':'pi','foregroundProvider':'openai','foregroundModel':'gpt-6.1-terra','codexAuthMode':'existing'}
+        if key in fresh: return fresh[key]
+    if key == 'apiKey' and (os.environ.get('ATTICUS_DEV_KEYCHAIN_HELPER') or
+                            os.path.abspath(DIR) == os.path.join(HOME, '.config/atticus-personal-dev')):
+        helper = os.environ.get('ATTICUS_DEV_KEYCHAIN_HELPER', '')
+        if not helper: raise keychain_store.KeychainError('The development Keychain helper is unavailable.')
+        value = keychain_store.ProviderKeyStore(DIR, keychain_store.KeychainStore(helper)).get()
+        return value if value is not None else default
     try:
         with open(PREFS) as f:
             return json.load(f).get(key, default)
@@ -452,7 +488,10 @@ def models():
     """The custom server's model names, for Settings' Model box. /v1/models is the same list shape on OpenAI-style and Anthropic-style servers."""
     probe = os.environ.get('ATTICUS_PROBE_BASE')   # setup's Change provider asks about a server before it is saved
     base = str(pref('apiBase', '') if probe is None else probe).strip().rstrip('/')
-    key = str(pref('apiKey', '') if probe is None else os.environ.get('ATTICUS_PROBE_KEY', '')).strip()
+    supplied_key = os.environ.get('ATTICUS_PROBE_KEY', '')
+    use_saved = probe is None or (os.environ.get('ATTICUS_DEV_KEYCHAIN_HELPER') and not supplied_key and
+                                   base == str(pref('apiBase', '')).strip().rstrip('/'))
+    key = str(pref('apiKey', '') if use_saved else supplied_key).strip()
     try: u = urllib.parse.urlparse(base)
     except ValueError: return []
     if u.scheme not in ('http', 'https') or not u.hostname: return []
@@ -1743,19 +1782,74 @@ def shortcut_name(request, reply):
     return tag[1].strip() if tag and words(tag[1]).strip() and words(tag[1]) in words(request) and words(tag[1]) != words(request) else ''
 
 
+_WORKFLOW_MUTEX = threading.RLock()
+_WORKFLOW_STATE = threading.local()
+
+
+def _workflow_locked(operation):
+    """Serialize complete workflow read-modify-write operations across helpers."""
+    @wraps(operation)
+    def locked(*args, **kwargs):
+        with _WORKFLOW_MUTEX:
+            if getattr(_WORKFLOW_STATE, 'locked', False): return operation(*args, **kwargs)
+            os.makedirs(DIR, mode=0o700, exist_ok=True)
+            path = os.path.join(DIR, 'workflows.lock')
+            if os.path.islink(path): raise ValueError('Symlinked workflow lock is unsupported.')
+            with open(path, 'a') as lock:
+                os.fchmod(lock.fileno(), 0o600); fcntl.flock(lock, fcntl.LOCK_EX)
+                _WORKFLOW_STATE.locked = True
+                try: return operation(*args, **kwargs)
+                finally: _WORKFLOW_STATE.locked = False
+    return locked
+
+
+def _skills_supported(saved):
+    if not isinstance(saved, dict): return False
+    for key, entry in saved.items():
+        if not isinstance(key, str) or not isinstance(entry, dict) or set(entry) - {'cmds','reply','at','used','asked','mine','evidence'}: return False
+        if not isinstance(entry.get('reply'), str) or not isinstance(entry.get('cmds'), list) or any(not isinstance(c, str) for c in entry['cmds']): return False
+        evidence = entry.get('evidence', {})
+        if not isinstance(evidence, dict) or set(evidence) - {'version','source','confirmed','successes','confidence','updated','corrections'}: return False
+        corrections = evidence.get('corrections', [])
+        if not isinstance(corrections, list) or any(not isinstance(x, dict) or set(x) - {'previous_hash','at','reason'} for x in corrections): return False
+    return True
+
+
+def _check_workflow_stores():
+    """Preflight multi-store operations before changing either store or rules."""
+    for path, kind in ((SKILLS, 'skills'), (os.path.join(DIR, 'workflows.json'), 'workflows')):
+        if os.path.islink(path): raise ValueError('Symlinked workflow store is unsupported.')
+        try:
+            with open(path) as source: saved = json.load(source)
+        except FileNotFoundError: continue
+        except (OSError, ValueError) as error: raise ValueError('Workflow store cannot be safely rewritten.') from error
+        valid = _skills_supported(saved) if kind == 'skills' else isinstance(saved, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in saved.items())
+        if not valid: raise ValueError('Unknown workflow fields; no changes made.')
+
+
+@_workflow_locked
 def skills():
+    if os.path.islink(SKILLS): return {}
     try:
         with open(SKILLS) as f: saved = json.load(f)
         if not isinstance(saved, dict): return {}
+        supported = _skills_supported(saved)
         clean = {task: entry for task, entry in saved.items() if not any(marker.casefold() in task.casefold() for marker in INTERNAL_TASK_MARKERS)
                  and isinstance(entry, dict) and isinstance(entry.get('reply'), str) and isinstance(entry.get('cmds'), list) and all(isinstance(c, str) for c in entry['cmds'])}
         pruned = len(clean) != len(saved)
         saved = clean
         for task, entry in saved.items():
+            if 'evidence' not in entry:
+                # Legacy shortcuts have unknown history. Explicitly taught ones
+                # retain owner confirmation; others need more verified successes.
+                confirmed = bool(entry.get('mine'))
+                entry['evidence'] = {'version': 1, 'source': 'legacy', 'confirmed': confirmed,
+                                     'successes': 1, 'confidence': 0.9 if confirmed else 0.4,
+                                     'updated': 0, 'corrections': []}
             if not isinstance(entry.get('asked', ''), str): entry.pop('asked')
             commands = shortcut_commands(entry.get('asked') or task, entry['cmds'])
             if commands is not None: entry['cmds'] = commands
-        if pruned: save_skills(saved)
+        if pruned and supported: save_skills(saved)
         return saved
     except (OSError, ValueError):
         return {}
@@ -1843,8 +1937,15 @@ def shortcut_commands(task, commands, app=''):
     return merged
 
 
+@_workflow_locked
 def save_skills(sk):
     """Write learned tasks; one unused for 30 days goes (shortcuts the user made stay)."""
+    if os.path.islink(SKILLS): raise ValueError('Symlinked shortcut store is unsupported.')
+    try:
+        with open(SKILLS) as source: existing = json.load(source)
+    except FileNotFoundError: existing = {}
+    except (OSError, ValueError) as error: raise ValueError('Shortcut store cannot be safely rewritten.') from error
+    if not _skills_supported(existing): raise ValueError('Unknown shortcut fields; no changes made.')
     old = time.strftime('%Y-%m-%d', time.localtime(time.time() - 30 * 86400))
     sk = {k: v for k, v in sk.items() if v.get('mine') or max(v.get('used', ''), v.get('at', '')) >= old}
     os.makedirs(DIR, exist_ok=True)
@@ -1855,6 +1956,69 @@ def save_skills(sk):
             if os.path.exists(f.name): os.unlink(f.name)
 
 
+def workflow_evidence(previous, commands, explicit=False):
+    """Track verified repeats without promoting a speculative or changed workflow."""
+    previous = previous if isinstance(previous, dict) else {}
+    prior = previous.get('evidence') if isinstance(previous.get('evidence'), dict) else {}
+    same = previous.get('cmds') == commands
+    successes = min(1000, max(0, prior.get('successes', 0)) + 1) if same and type(prior.get('successes', 0)) is int else 1
+    corrections = list(prior.get('corrections', [])) if isinstance(prior.get('corrections', []), list) else []
+    if previous.get('cmds') and not same:
+        digest = hashlib.sha256(json.dumps(previous['cmds'], ensure_ascii=False).encode()).hexdigest()[:16]
+        corrections.append({'previous_hash': digest, 'at': time.time(), 'reason': 'verified replacement'})
+    confirmed = bool(explicit or same and prior.get('confirmed') is True)
+    confidence = 0.9 if confirmed else min(0.9, 0.2 + 0.2 * successes)
+    return {'version': 1, 'source': 'owner' if confirmed else 'observed', 'confirmed': confirmed,
+            'successes': successes, 'confidence': round(confidence, 2), 'updated': time.time(),
+            'corrections': corrections[-20:]}
+
+
+def workflow_trusted(entry):
+    evidence = entry.get('evidence')
+    if not isinstance(evidence, dict): return False
+    # Repetition improves confidence but never grants authorization.
+    return evidence.get('confirmed') is True and evidence.get('source') in ('owner', 'legacy')
+
+
+def confirm_workflow(key):
+    """Show the exact saved steps and promote only the unchanged owner-approved binding."""
+    if os.environ.get('ATTICUS_AGENT') or not os.environ.get('ATTICUS_ASK'):
+        return 'Confirm a shortcut from the Atticus window.'
+    saved = skills(); entry = saved.get(plain(key))
+    if not entry: return 'I could not find that exact shortcut.'
+    commands = entry['cmds'][:]
+    details = '\n'.join(commands)
+    if not details or len(details) > 3000: return 'This shortcut is too large to confirm safely.'
+    answer = ask_user({'q': 'Confirm these shortcut steps?', 'cmd': details, 'task': False}, 600)
+    if answer != 'y': return 'Shortcut not confirmed.'
+    return _confirm_workflow_apply(key, commands)
+
+
+@_workflow_locked
+def _confirm_workflow_apply(key, commands):
+    current = skills(); entry = current.get(plain(key))
+    if not entry or entry.get('cmds') != commands: return 'The shortcut changed during review. Please review it again.'
+    evidence = entry.get('evidence') if isinstance(entry.get('evidence'), dict) else {}
+    evidence.update(version=1, source='owner', confirmed=True, confidence=0.9, updated=time.time())
+    entry['evidence'] = evidence
+    save_skills(current)
+    return 'Shortcut confirmed. Actions that need approval still use the normal approval path.'
+
+
+@_workflow_locked
+def workflow_failed(key):
+    saved = skills()
+    entry = saved.get(key)
+    if not entry: return
+    old = entry.get('evidence') if isinstance(entry.get('evidence'), dict) else {}
+    corrections = list(old.get('corrections', [])) if isinstance(old.get('corrections', []), list) else []
+    corrections.append({'at': time.time(), 'reason': 'replay verification failed'})
+    entry['evidence'] = {'version': 1, 'source': 'observed', 'confirmed': False, 'successes': 0,
+                         'confidence': 0.0, 'updated': time.time(), 'corrections': corrections[-20:]}
+    save_skills(saved)
+
+
+@_workflow_locked
 def learn(task, cmds, reply, asked=''):
     """Save the commands if every one is a replayable action (no reading, searching, clicking by element ID).
     asked: the words that asked for it when task is a shortcut's name, so "when I say study, open Notes" replays Notes in front."""
@@ -1871,11 +2035,12 @@ def learn(task, cmds, reply, asked=''):
         try: bid = replay_quit(shlex.split(command))
         except ValueError: return
         if bid and app_running(bid): return   # a quit that did not quit is evidence against the reply
+    _check_workflow_stores()
     sk = skills()
     old = sk.get(k, {})
     new = old.get('cmds') != cmds
     said = asked or old.get('asked', '')   # a redo after a failed replay keeps what the user taught it as
-    sk[k] = {'cmds': cmds, 'reply': reply, 'at': time.strftime('%Y-%m-%d'), **({'asked': said, 'mine': True} if said else {'mine': True} if old.get('mine') else {})}
+    sk[k] = {'cmds': cmds, 'reply': reply, 'at': time.strftime('%Y-%m-%d'), 'evidence': workflow_evidence(old, cmds, bool(asked)), **({'asked': said, 'mine': True} if said else {'mine': True} if old.get('mine') else {})}
     if asked:   # taught by name: no older version of it (a whole-sentence key, a rule, a workflow) may steer the AI or a replay
         name = r'\W+'.join(map(re.escape, k.split()))
         for other in [o for o in sk if o != k and re.search(rf'\bi say {name}\b', o)]: sk.pop(other)
@@ -1886,7 +2051,16 @@ def learn(task, cmds, reply, asked=''):
     return new   # True: a task it did not know yet (the box shows a green "Learned" tip)
 
 
+@_workflow_locked
+def _save_shortcut(name, command):
+    sk = skills()
+    sk[plain(name)] = {'cmds': [command], 'reply': 'Done: ' + name.strip().rstrip('.') + '.', 'at': time.strftime('%Y-%m-%d'), 'mine': True}
+    save_skills(sk)
+
+
+@_workflow_locked
 def unlearn(task):
+    _check_workflow_stores()
     sk = skills()
     if sk.pop(plain(task), None) is not None:
         save_skills(sk)
@@ -1943,18 +2117,31 @@ def replay_quit(tokens):
     return m[2] if m[1] else app_id(app_named(m[2]) or m[2])
 
 
+def instant_replay_allowed(command):
+    """Only navigation/window placement bypasses the ordinary action gate."""
+    if risky(command): return False
+    try: tokens = shlex.split(command)
+    except ValueError: return False
+    if tokens[:2] == [ME, '--show']:
+        return len(tokens) == 3 or len(tokens) == 4 and tokens[2] == '--bg'
+    if tokens[:2] == [ME, '--place']:
+        return len(tokens) >= 4
+    return False
+
+
 def replay(k, swap=None):
     replay.ran = []
     replay.commands = []
     replay.failed_at = None
     s = skills().get(k)
+    if s and not workflow_trusted(s): return None
     asked = s.get('asked') or k if s else k   # a named shortcut's own words say nothing about focus; the words that taught it do
     commands = shortcut_commands(asked, swapped(s['cmds'], *swap) if swap else s['cmds']) if s else None
     if not commands:
         return None
     replay.commands = commands
-    if pref('safe', True) and any(risky(c) for c in commands):
-        return None   # the AI's tool gate can show the Allow card; direct replay cannot
+    if any(risky(c) or not instant_replay_allowed(c) for c in commands):
+        return None   # other actions must go through the normal gate, even if safe mode is off
     if not wants_focus(asked) and pref('workIn', 'back') != 'front' and any(focus_command(c) for c in commands): return None
     for index, c in enumerate(commands):   # any failure: hand it to the AI instead
         replay.failed_at = index
@@ -1997,9 +2184,16 @@ def replay(k, swap=None):
             replay.ran.append(f'{c[:200]}  => {type(e).__name__}')
             return None
     if s.get('used') != time.strftime('%Y-%m-%d'):   # used today: the 30-day clock starts again
-        sk = skills(); sk[k]['used'] = time.strftime('%Y-%m-%d'); save_skills(sk)
+        _workflow_mark_used(k, s)
     replay.failed_at = None
     return outcome(s['reply'].replace(*swap) if swap else s['reply'])
+
+
+@_workflow_locked
+def _workflow_mark_used(key, previously_replayed):
+    sk = skills(); current = sk.get(key)
+    if current and current.get('cmds') == previously_replayed.get('cmds') and workflow_trusted(current):
+        current['used'] = time.strftime('%Y-%m-%d'); save_skills(sk)
 
 
 def outcome(reply):
@@ -2008,14 +2202,23 @@ def outcome(reply):
     return m[0] if m and not re.search(r"n['’]t\b|\bnot\b", reply[m.end():], re.I) else reply   # a caveat ("It isn't sent yet.") holds for every replay
 
 
+@_workflow_locked
 def workflows(task=None, method=''):
     """One relevant procedure in the prompt; never execute historical UI commands blindly."""
     path = os.path.join(DIR, 'workflows.json')
+    if os.path.islink(path):
+        if method or method is None: raise ValueError('Symlinked workflow store is unsupported.')
+        return {} if task is None else ''
     try:
         with open(path) as f:
             saved = json.load(f)
-    except (OSError, ValueError):
+    except FileNotFoundError:
         saved = {}
+    except (OSError, ValueError) as error:
+        if method or method is None: raise ValueError('Workflow store cannot be safely rewritten.') from error
+        saved = {}
+    supported = isinstance(saved, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in saved.items())
+    if (method or method is None) and not supported: raise ValueError('Unknown workflow fields; no changes made.')
     saved = {k: v for k, v in saved.items() if isinstance(v, str)} if isinstance(saved, dict) else {}
     if task is None:
         return saved
@@ -2048,6 +2251,7 @@ def replayable(cmd):
     return not (UNSAFE.search(re.sub(r'"[^"$`]*"', '""', cmd)) or risky(cmd) or re.search(r'--(coords|at|on)\b|PID:|make new|<\w+>', cmd) or not hands_replayable(cmd))
 
 
+@_workflow_locked
 def remember_workflow(task, reply, ok, cmds):
     again = re.search(r'\s*\[replay (.+)\]\s*$', reply)
     reply = reply[:again.start()] if again else reply
@@ -2060,6 +2264,7 @@ def remember_workflow(task, reply, ok, cmds):
     title, sep, method = match[1].partition('|')
     saved = saved and bool(sep and title.strip() and method.strip())
     if saved:
+        _check_workflow_stores()
         workflows(title.strip()[:120], method.strip())
         if again and replayable(again[1]):
             commands = shortcut_commands(task, [again[1].strip()], (cached_hands() or {}).get('app', ''))
@@ -2067,7 +2272,8 @@ def remember_workflow(task, reply, ok, cmds):
             if not commands or performed is None or any(c not in performed for c in commands): return reply, saved
             sk = skills()
             for k in {plain(task), plain(title)}:
-                sk[k] = {'cmds': commands, 'reply': reply, 'at': time.strftime('%Y-%m-%d')}
+                previous = sk.get(k, {})
+                sk[k] = {'cmds': commands, 'reply': reply, 'at': time.strftime('%Y-%m-%d'), 'evidence': workflow_evidence(previous, commands)}
             save_skills(sk)
     return reply, saved
 
@@ -2095,10 +2301,26 @@ def fast(text):
         if reply and learn(name, fast.cmds, reply, text) is not None:
             output = fast.shortcut['output'] if fast.shortcut else [reply]
             fast.shortcut = {'key': plain(name), 'commands': fast.cmds, 'output': output}
-            tip(reply, f'Learned: Say “{name}” any time.')
+            saved = skills().get(plain(name), {})
+            ready = workflow_trusted(saved) and all(instant_replay_allowed(c) for c in saved.get('cmds', []))
+            tip(reply, f'Learned: Say “{name}” any time.' if ready else 'Saved; its actions still require the normal approval path.')
             return reply
         return None
     t = plain(text)
+    confirmation = re.fullmatch(r'confirm (?:the )?shortcut (.+)', t)
+    if confirmation and os.environ.get('ATTICUS_LIVE') != '1':
+        if not _request_contains(t): return 'Only your own explicit request can confirm a shortcut.'
+        return confirm_workflow(confirmation[1])
+    remembered = re.fullmatch(r'remember (?:that )?this is (?:my |the )?(.+)', t)
+    if remembered and os.environ.get('ATTICUS_LIVE') != '1':
+        if os.environ.get('ATTICUS_AGENT') or not _request_contains(t):
+            return 'Only your own explicit request can save a destination.'
+        return personal_commands.remember_current(DIR, remembered[1])
+    destination = personal_commands.resolve(DIR, t)
+    if destination and os.environ.get('ATTICUS_LIVE') != '1':
+        if destination.get('ambiguous'):
+            return 'More than one saved destination matches. Please clarify which one.'
+        return personal_commands.open_destination(destination)
     if t in ('report feedback', 'report a bug'):
         if os.environ.get('ATTICUS_LIVE') == '1': return None
         say('!', 'feedback')
@@ -2110,7 +2332,10 @@ def fast(text):
     if m and pref('learn', True):
         if os.environ.get('ATTICUS_LIVE') == '1':
             return None
-        return ('I have saved the procedure for next time.' if workflows(m[1]) or any(gist(k) == gist(m[1]) for k in skills()) else
+        matching = [entry for key, entry in skills().items() if gist(key) == gist(m[1])]
+        if matching and not any(workflow_trusted(entry) for entry in matching):
+            return 'I saved a candidate, but it needs your confirmation before instant replay.'
+        return ('I have saved the procedure for next time.' if workflows(m[1]) or matching else
                 'I do not have a verified procedure for that yet. Complete the task successfully first so I can save it.')
     if t in ('no', 'yes', 'ok', 'okay', 'nevermind', 'never mind', 'cancel', 'nothing', 'thanks', 'thank you'):
         return None if os.environ.get('ATTICUS_LIVE') == '1' else 'Okay.'   # stray word after a turn: no AI call; mid-sentence it starts the next words ("No, when I say …")
@@ -2131,6 +2356,7 @@ def fast(text):
             return None   # even a shortcut named "open Spotify" waits for confirmed words
         r = replay(k, swap)
         if r and replay.failed_at is not None:   # a move it could not check: the user hears that, not the shortcut's reply
+            workflow_failed(k)
             fast.cmds = replay.commands[:replay.failed_at + 1]
             return r
         if r:
@@ -2138,6 +2364,7 @@ def fast(text):
             fast.shortcut = {'key': t if swap else k, 'commands': replay.commands, 'output': replay.ran}
             return r
         if replay.ran:   # it acted, then a step failed or its check contradicted: never another instant reply, the AI redoes it
+            workflow_failed(k)
             fast.failed = {'key': k, 'commands': replay.commands, 'output': replay.ran, 'failed_at': replay.failed_at}
             if telemetry_enabled():
                 report_error('replay', shortcut=hashlib.sha256((install_id() + '\0' + k).encode()).hexdigest()[:16],
@@ -3457,7 +3684,7 @@ def activate(key):
 
 
 def telemetry_enabled():
-    return bool(POSTHOG_KEY and pref('stats', True) and not os.environ.get('ATTICUS_DIR'))   # ATTICUS_DIR is the pure-test sandbox
+    return False  # Independent of legacy preferences and environment.
 
 
 def install_id():
@@ -3469,17 +3696,7 @@ def install_id():
 
 
 def posthog(event, props=None, stamp=()):
-    """One anonymous event (a random ID, no person profile). stamp: (text, file) written once it is sent."""
-    if not telemetry_enabled():
-        return
-    try:
-        body = json.dumps({'api_key': POSTHOG_KEY, 'event': event, 'distinct_id': install_id(), 'properties': {'$process_person_profile': False, 'version': APP_VERSION, 'commit': APP_COMMIT,
-                                                                                                            'macos': platform.mac_ver()[0], 'client': client(), **(props or {})}})
-        subprocess.Popen(['/bin/sh', '-c', 'curl -fsS -m 10 -H "Content-Type: application/json" -d "$1" https://us.i.posthog.com/i/v0/e/' + (' && printf %s "$2" > "$3"' if stamp else ''),
-                          'atticus-ping', body, *stamp],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)   # cancellation cannot kill it or slow the answer
-    except (OSError, ValueError):
-        pass   # telemetry never breaks an ask
+    return None  # No upstream analytics, including legacy opted-in profiles.
 
 
 def ping():
@@ -3800,17 +4017,11 @@ def tip(reply, taught=''):
     tips, miss = pref('tips', True), taught or failed_action_reply(reply, getattr(run, 'work', False))
     if taught.startswith('Learned:') or tips and miss:
         return say('i', taught or MISS)
-    stamp, kofi = os.path.join(DIR, 'tip'), os.path.join(DIR, 'kofi')
+    stamp = os.path.join(DIR, 'tip')
     if miss:
         return
-    if not os.path.exists(kofi):   # first ask, or an install from before the tip jar: its 4 h clock starts now
-        Path(kofi).touch()
-    if not os.path.exists(stamp):   # never on the very first ask
+    if not os.path.exists(stamp):
         return Path(stamp).write_text('0')
-    if pref('support', pref('tips', True)) and time.time() - os.path.getmtime(kofi) > 4 * 3600:
-        Path(kofi).touch()
-        posthog('support', {'action': 'shown', 'from': 'overlay'})
-        return say('i', 'Support: ' + SUPPORT[int(time.time()) % len(SUPPORT)])
     n = int(Path(stamp).read_text() or 0)
     if not tips or time.time() - os.path.getmtime(stamp) < 6 * 3600:
         return
@@ -3874,8 +4085,22 @@ def devin_plan():
 
 def pi_plan():
     """Pi owns its provider, model and sign-in; Atticus only needs its CLI."""
-    if not shutil.which('pi'):
-        return {'ok': False, 'need': 'install', 'text': 'Pi is not installed.'}
+    diagnostics = foreground_openai.diagnose_runtime(DIR, HOME)
+    if not diagnostics['ready']:
+        messages = {'runtime_missing':'Atticus’s separate Pi runtime is missing. Run the included Setup.command.',
+                    'runtime_incomplete':'Atticus’s Pi setup is incomplete. Review the setup result before retrying.',
+                    'runtime_symlink':'Atticus cannot use a symlinked runtime folder.',
+                    'descriptor_missing':'Atticus’s Pi runtime descriptor is missing; a separate Terminal Pi does not configure this app.',
+                    'descriptor_invalid':'Atticus’s Pi runtime descriptor is invalid.',
+                    'node_missing':'The Node executable recorded by Atticus setup is unavailable.',
+                    'node_changed':'Node changed since Atticus setup; the runtime needs review.',
+                    'package_mismatch':'Atticus’s Pi package is missing or is not version 1.4.0.',
+                    'binary_mismatch':'Atticus’s Pi executable does not match its expected package.'}
+        return {'ok': False, 'need': 'install', 'text': messages.get(diagnostics['reason'],'Atticus’s Pi runtime could not be verified.')}
+    if pref('foregroundProvider', '') == 'openai':
+        if pref('foregroundOpenAIKeyConfigured', False) is not True:
+            return {'ok': False, 'need': '', 'text': 'Set the separate foreground OpenAI key in Settings.'}
+        return {'ok': True, 'need': '', 'text': 'Using OpenAI through Pi for text-only answers; computer tools are disabled.'}
     return {'ok': True, 'need': '', 'text': 'Using the provider and model selected in Pi.'}
 
 
@@ -3937,6 +4162,169 @@ export default function (pi) {
   });
 }
 '''
+
+
+# The foreground extension exposes only this one narrow action. Child processes
+# receive an explicit environment that never includes provider credentials.
+FOREGROUND_SAVED_TOOL = r"""
+import { spawnSync } from 'node:child_process';
+export default function(pi) {
+  pi.registerTool({ name:'open_saved_destination', label:'Open saved destination',
+    description:'Request approval to open one owner-confirmed saved Safari destination by its name.',
+    parameters:{type:'object',properties:{name:{type:'string',minLength:1,maxLength:120}},required:['name'],additionalProperties:false},
+    async execute(_id, input) {
+      const keys=['HOME','TMPDIR','LANG','LC_ALL','LC_CTYPE','ATTICUS_DIR','ATTICUS_ASK','ATTICUS_ME'];
+      const env=Object.fromEntries(keys.filter(k=>typeof process.env[k]==='string').map(k=>[k,process.env[k]]));
+      env.PATH='/usr/bin:/bin:/usr/sbin:/sbin';
+      const io=Array(199).fill('ignore');io[0]='pipe';io[1]='pipe';io[2]='pipe';io[198]=198;
+      const result=spawnSync('/bin/sh',[env.ATTICUS_ME,'--foreground-saved-tool'],{input:JSON.stringify(input),encoding:'utf8',env,stdio:io,timeout:70000,maxBuffer:8192});
+      let text='The saved destination could not be opened.';
+      try { const value=JSON.parse((result.stdout||'').trim().split('\\n').at(-1)); if(result.status===0 && typeof value.text==='string') text=value.text; } catch {}
+      return {content:[{type:'text',text}],details:undefined};
+    }
+  });
+}
+"""
+
+FOREGROUND_CONTROL_TOOL = r"""
+import { spawnSync } from 'node:child_process';
+export default function(pi) {
+  pi.registerTool({name:'atticus_control',label:'Approved app control',
+    description:'Ask approval to open or focus an installed app by exact bundle ID, or press one exact named Accessibility control in that app. No screen content is returned.',
+    parameters:{type:'object',properties:{action:{type:'string',enum:['open_app','focus_app','click']},bundle_id:{type:'string',maxLength:200},target:{type:'string',maxLength:120}},required:['action','bundle_id'],additionalProperties:false},
+    async execute(_id,input) {
+      const keys=['HOME','TMPDIR','LANG','LC_ALL','LC_CTYPE','ATTICUS_DIR','ATTICUS_ASK','ATTICUS_ME','ATTICUS_APP'];
+      const env=Object.fromEntries(keys.filter(k=>typeof process.env[k]==='string').map(k=>[k,process.env[k]]));env.PATH='/usr/bin:/bin:/usr/sbin:/sbin';
+      const io=Array(199).fill('ignore');io[0]='pipe';io[1]='pipe';io[2]='pipe';io[198]=198;
+      const result=spawnSync('/bin/sh',[env.ATTICUS_ME,'--foreground-control'],{input:JSON.stringify(input),encoding:'utf8',env,stdio:io,timeout:130000,maxBuffer:8192});
+      let text='The action could not be verified; inspect before retrying.';
+      try { const value=JSON.parse((result.stdout||'').trim()); if(result.status===0 && typeof value.text==='string') text=value.text; } catch {}
+      return {content:[{type:'text',text}],details:undefined};
+    }
+  });
+}
+"""
+
+
+def autonomy_store():
+    # Disabled until authorization is mediated by a trusted native channel.
+    return None
+
+
+def autonomy_app(bundle):
+    try:
+        p=subprocess.run([APP,'--foreground-app-info',bundle],capture_output=True,text=True,timeout=5)
+        value=json.loads(p.stdout) if p.returncode==0 else None
+        if not isinstance(value,dict) or value.get('bundle_id')!=bundle or not isinstance(value.get('path'),str): return None
+        return {'type':'app','id':bundle,'revision':autonomy_policy.fingerprint({'bundle_id':bundle,'path':value['path']})}
+    except (OSError,ValueError,subprocess.TimeoutExpired): return None
+
+def autonomy_destination(name):
+    if not isinstance(name,str) or not name.strip() or len(name)>120: return None
+    row=personal_commands.resolve(DIR,'open '+name.strip())
+    if not row or row.get('ambiguous') or row.get('type')=='document' or not personal_commands.validate_url(row.get('url')) or row.get('confirmed') is not True: return None
+    return {'type':'destination','id':row['label'],'revision':autonomy_policy.fingerprint(row)}
+
+def autonomy_setup(request):
+    # Same-user agent processes can forge environment variables and write local files.
+    # Do not accept any activation until the owner channel is independently verified.
+    return {'error':'Autonomous mode is unavailable pending safety review.'}
+
+
+def foreground_control_request(request):
+    """Execute typed, owner-approved actions without exposing screen data or keys."""
+    ask=os.environ.get('ATTICUS_ASK',''); parent=os.getppid()
+    def cancelled(): return STOPPING or os.getppid()!=parent or not ask or not os.path.isdir(ask) or os.path.exists(os.path.join(ask,'declined'))
+    def lookup(bundle):
+        try:
+            result=subprocess.run([APP,'--foreground-app-info',bundle],capture_output=True,text=True,timeout=5)
+            value=json.loads(result.stdout) if result.returncode==0 else None
+            return value if isinstance(value,dict) else None
+        except (OSError,ValueError,subprocess.TimeoutExpired): return None
+    def approval(question): return approval_channel.tool_approval(question,60)
+    def launch(app):
+        try:
+            result=subprocess.run(['/usr/bin/open','-a',app['path']],capture_output=True,text=True,timeout=10)
+            return {'status':'unverified','text':'App opening was requested; check the app before continuing.'} if result.returncode==0 else {'status':'unverified','text':'App opening could not be verified; inspect before retrying.'}
+        except (OSError,subprocess.TimeoutExpired): return {'status':'unverified','text':'App opening could not be verified; inspect before retrying.'}
+    def focus(app):
+        try:
+            r=subprocess.run([APP,'--foreground-app-info',app['bundle_id'],'focus',str(app['pid']),app['started']],capture_output=True,text=True,timeout=5)
+            result=json.loads(r.stdout) if r.returncode==0 else {}
+            if result.get('focused') is True: return {'status':'verified','text':'The selected app is in front.'}
+            return {'status':'unverified','text':'Focus could not be verified; inspect before retrying.'}
+        except (OSError,ValueError,subprocess.TimeoutExpired): return {'status':'unverified','text':'Focus could not be verified; inspect before retrying.'}
+    def click(bundle,target,authorize):
+        os.environ['ATTICUS_AX_ONLY']='1';os.environ['ATTICUS_HANDS_STATE']=os.path.join(ask,'foreground-hands.json')
+        try:
+            mapped=hands_call(['see',bundle],timeout=8)
+            if mapped.returncode: return {'status':'blocked','text':'Accessibility access or the target window is unavailable; nothing was pressed.'}
+            if cancelled(): return {'status':'cancelled','text':'The request was cancelled; nothing was pressed.'}
+            check,result=hands_action(['click',target],authorize,timeout=65)
+            if check is None: return {'status':'blocked','text':'The control could not be identified; nothing was pressed.'}
+            if result.returncode: return {'status':'unverified','text':'The control action could not be verified; inspect before retrying.'}
+            return {'status':'unverified','text':'The Accessibility press was dispatched; inspect the app before continuing.'}
+        except (OSError,ValueError,InterruptedError,subprocess.TimeoutExpired): return {'status':'unverified','text':'The action outcome is unknown; inspect before retrying.'}
+    def automatic(action, app):
+        store=autonomy_store()
+        if not store: return None
+        target={'type':'app','id':app['bundle_id'],'revision':autonomy_policy.fingerprint({'bundle_id':app['bundle_id'],'path':app['path']})}
+        result=[]
+        def perform():
+            if cancelled() or lookup(app['bundle_id']) != app or os.path.lexists(store.stop_path): result.append({'status':'cancelled','text':'The app changed or the request was cancelled.'}); return
+            result.append((launch if action=='open_app' else focus)(app))
+        try:
+            if store.dispatch(action,target,time.monotonic,perform): return result[0]
+        except (OSError,ValueError): pass
+        return None
+    return foreground_control.handle(request,lookup,approval,launch,focus,click,cancelled,automatic)
+
+
+
+def destination_store_revision(directory):
+    try:
+        path=os.path.join(directory,'destinations.json')
+        fd=os.open(path,os.O_RDONLY|getattr(os,'O_NOFOLLOW',0))
+        with os.fdopen(fd,'rb') as f:
+            before=os.fstat(f.fileno());data=f.read(8_000_001);after=os.fstat(f.fileno())
+        current=os.stat(path,follow_symlinks=False)
+        if len(data)>8_000_000 or any((x.st_ino,x.st_size,x.st_mtime_ns)!=(before.st_ino,before.st_size,before.st_mtime_ns) for x in (after,current)): return None
+        return hashlib.sha256(data).hexdigest()
+    except (OSError,ValueError): return None
+
+def foreground_saved_tool(request, approve=None, open_action=None):
+    """Open exactly one confirmed destination after a fresh owner approval."""
+    if not isinstance(request,dict) or set(request) != {'name'} or not isinstance(request['name'],str) or not request['name'].strip() or len(request['name']) > 120:
+        return {'text':'Invalid saved destination request.'}
+    if not os.environ.get('ATTICUS_ASK') or not os.environ.get('ATTICUS_DIR'):
+        return {'text':'This action requires an active Atticus request.'}
+    ask=os.environ['ATTICUS_ASK']; parent=os.getppid()
+    if not os.path.isdir(ask) or os.path.exists(os.path.join(ask,'declined')): return {'text':'The request was cancelled; nothing was opened.'}
+    phrase='open '+request['name'].strip()
+    row=personal_commands.resolve(DIR,phrase)
+    if not row or row.get('ambiguous') or row.get('type') == 'document' or not isinstance(row.get('label'),str) or not row['label'] or len(row['label']) > 120: return {'text':'No unique confirmed saved destination matches.'}
+    approve=approve or (lambda question: approval_channel.tool_approval(question,60))
+    open_action=open_action or personal_commands.open_destination
+    store=autonomy_store()
+    if store:
+        target={'type':'destination','id':row['label'],'revision':autonomy_policy.fingerprint(row)}; result=[]
+        def perform():
+            if os.getppid()!=parent or not os.path.isdir(ask) or os.path.exists(os.path.join(ask,'declined')) or personal_commands.resolve(DIR,phrase)!=row or os.path.lexists(store.stop_path): result.append({'text':'The saved destination changed or the request was cancelled.'}); return
+            result.append({'text':open_action(row)})
+        try:
+            if store.dispatch('open_url',target,time.monotonic,perform): return result[0]
+        except (OSError,ValueError): pass
+    decision=approve({'q':'Open this saved destination in Safari?', 'cmd':row['label']+' — '+row['url']})
+    if decision != 'y' or os.getppid() != parent or not os.path.isdir(ask) or os.path.exists(os.path.join(ask,'declined')): return {'text':'The saved destination was not opened.'}
+    if personal_commands.resolve(DIR,phrase) != row or (getattr(decision,'deadline',None) is not None and (not getattr(decision,'revision',None) or destination_store_revision(DIR)!=decision.revision)) or os.getppid()!=parent or not os.path.isdir(ask) or os.path.exists(os.path.join(ask,'declined')) or not approval_channel.authorized(decision): return {'text':'The saved destination changed, authorization expired, or the request was cancelled.'}
+    if isinstance(decision,approval_channel.Approval):
+        if open_action is not personal_commands.open_destination: return {'text':'The saved destination cannot be safely verified.'}
+        def still_authorized():
+            if personal_commands.resolve(DIR,phrase) != row: return False
+            if decision.deadline is not None and destination_store_revision(DIR)!=decision.revision: return False
+            return os.getppid()==parent and os.path.isdir(ask) and not os.path.exists(os.path.join(ask,'declined')) and approval_channel.authorized(decision)
+        return {'text':open_action(row,authorize=still_authorized)}
+    return {'text':open_action(row)}
 
 
 def stop_claude(p):
@@ -4577,12 +4965,48 @@ def routine_model(mode):
     return 'haiku' if mode == 'cheapest' else work_model()
 
 
+# Codex has not yet been connected to Atticus's full approval gate, including MCP tools.
+# Keep live launches disabled until those boundaries are implemented and verified.
+CODEX_AGENT_READY = False
+
+
+def journal_verified_agent(row):
+    """Opt-in: write only a user-verified completed agent record to the chosen vault."""
+    if not pref('journalEnabled', False): return {'status': 'disabled'}
+    if row.get('status') != 'done' or row.get('verified') is not True: return {'status': 'unverified'}
+    vault = pref('journalVault', '')
+    excluded = pref('journalExcludedFolders', [])
+    terms = pref('journalExcludedTerms', [])
+    if not isinstance(vault, str) or not vault: return {'status': 'not_configured'}
+    if not isinstance(excluded, list) or not isinstance(terms, list): return {'status': 'invalid_privacy_settings'}
+    folder = row.get('folder', '')
+    if excluded and (not isinstance(folder, str) or not os.path.isabs(folder)):
+        return {'status': 'excluded_unknown_scope'}
+    for entry in excluded:
+        if not isinstance(entry, str) or not os.path.isabs(entry): return {'status': 'invalid_privacy_settings'}
+        try:
+            if os.path.commonpath((os.path.realpath(folder), os.path.realpath(entry))) == os.path.realpath(entry):
+                return {'status': 'excluded'}
+        except ValueError: return {'status': 'invalid_privacy_settings'}
+    title = str(row.get('title', ''))
+    if any(not isinstance(term, str) or not term.strip() for term in terms): return {'status': 'invalid_privacy_settings'}
+    if any(term.casefold() in title.casefold() for term in terms): return {'status': 'excluded'}
+    try:
+        event = {'id': str(row['id']) + '-' + str(int(float(row['ended']) * 1000)), 'title': title,
+                 'status': 'done', 'verified': True, 'ended': row['ended']}
+        return vault_journal.journal_completed(vault, event)
+    except (OSError, ValueError, TypeError, KeyError, vault_journal.JournalError):
+        return {'status': 'error'}
+
+
 class Agents:
     def __init__(self, emit=None, launch=None):
         self.emit = emit or (lambda event: print(json.dumps(event, ensure_ascii=False), flush=True))
         self.launch = launch or (lambda row: start_claude(row.get('_model') or agent_model(), row))
         self.rows = {r['id']: r for r in agent_history()}
         self.processes, self.inputs, self.outstanding = {}, {}, {}
+        self.codex_sessions, self.codex_approvals = {}, {}
+        self.personal_requests = {}  # request id -> pending or completed response; never execute a duplicate
         self.offers = set()
         self.lock = threading.RLock(); self.idle = None; self.idle_at = 0; self.closed = False
         self.named_at = 0
@@ -4591,8 +5015,17 @@ class Agents:
         except OSError: self.named_stamp = 0
         self.box = {'busy': True}; self.pings = [r['id'] for r in self.rows.values() if r.get('status') == 'done' and not r.get('seen') and r.get('pinged') != r.get('ended')]
         for row in self.rows.values():
+            if os.environ.get('ATTICUS_DEV_NO_AUTO_RESUME') == '1' and row.get('status') in ('running', 'needs-you', 'waiting-screen', 'queued'):
+                row.update(status='stopped', step='Interrupted; review before resuming', question=None)
+                if row.get('provider') == 'codex': row.update(cancelOutcome='restart_unknown', cancelReviewRequired=True, cancelRequested=False)
+                self.save(row); continue
             if (row.get('question') or {}).get('need') == 'connector':   # it finished and only waits for a connector: ask again
                 row['question'].pop('waiting', None); continue
+            if row.get('provider') == 'codex' and row.get('status') in ('running', 'needs-you', 'waiting-screen', 'queued'):
+                row.update(status='stopped', step='Outcome unknown after restart; inspect before resuming', question=None,
+                           cancelOutcome='restart_unknown', cancelReviewRequired=True, cancelRequested=False)
+                self.save(row)
+                continue
             if row.get('status') in ('running', 'needs-you', 'waiting-screen', 'queued'):
                 if not row.get('session'):
                     row['session'] = next((e.get('data', {}).get('session_id') for e in reversed(read_rows(os.path.join(row['directory'], 'log.jsonl')))
@@ -4663,6 +5096,7 @@ class Agents:
         with self.inputs[identifier]: p.stdin.write(json.dumps(event) + '\n'); p.stdin.flush()
 
     def warm(self, row):
+        if row.get('provider') == 'codex': return
         if row.get('_directoryLost') or not os.path.isdir(row['directory']):
             self.directory_lost(row); raise OSError('Agent directory disappeared')
         row['_model'], row['_userTools'] = row.get('_requestedModel') or agent_model(), pref('agentUserTools', True)
@@ -4681,6 +5115,15 @@ class Agents:
 
     def prepare(self, brief):
         with self.lock:
+            # Only the user's actual words may select Codex. Project scope must
+            # already be owner-confirmed in this device's local registry.
+            request = brief.get('request') or ''
+            if isinstance(request, str) and re.search(r'\bcodex\b', request, re.I):
+                project = personal_commands.resolve_project(DIR, request)
+                folder = project.get('folder', '') if project and not project.get('ambiguous') else ''
+                brief = {**brief, 'provider': 'codex', 'folder': folder}
+            else:
+                brief = {k: v for k, v in brief.items() if k != 'provider'}
             existing = next((row for row in self.rows.values() if brief.get('handoffId') and row.get('handoffId') == brief['handoffId']), None)
             if existing: return existing
             if brief.get('steer') in self.rows:
@@ -4719,9 +5162,9 @@ class Agents:
             requested_model = brief.get('model') if isinstance(brief.get('model'), str) else ''
             if self.idle and (self.idle.get('_model') != (requested_model or agent_model()) or self.idle.get('_userTools') != pref('agentUserTools', True)):
                 self.stop_process(self.idle['id']); self.idle = None
-            row = self.idle if self.idle and self.idle.get('destination', '') == brief.get('destination', '') and not brief.get('connectors') else self.new()
+            row = self.idle if brief.get('provider') != 'codex' and self.idle and self.idle.get('destination', '') == brief.get('destination', '') and not brief.get('connectors') else self.new()
             if row is self.idle: self.idle = None
-            row.update({k: brief[k] for k in ('title', 'brief', 'context', 'request', 'app', 'page', 'connectors', 'destination', 'named', 'folder', 'files', 'focus', 'handoffId', 'turn_timing') if k in brief})
+            row.update({k: brief[k] for k in ('title', 'brief', 'context', 'request', 'app', 'page', 'connectors', 'destination', 'named', 'folder', 'files', 'focus', 'handoffId', 'turn_timing', 'provider') if k in brief})
             if requested_model: row['_requestedModel'] = requested_model
             row.update(status='offered', seen=False)
             self.offers.add(row['id'])
@@ -4749,6 +5192,8 @@ class Agents:
         with self.lock:
             self.offers.discard(identifier)
             row = self.rows[identifier]
+            if row.get('provider') == 'codex' and (row.get('cancelRequested') or row.get('cancelReviewRequired')):
+                self.emit({'event':'error', 'error':'Review the prior Codex cancellation outcome before continuing.'}); return
             if row.get('_directoryLost') or not os.path.isdir(row['directory']):
                 self.directory_lost(row); return
             try:
@@ -4794,15 +5239,21 @@ class Agents:
             if asked or '_learningSince' not in row:
                 row.update(_learningSince=time.time(), _learningContext=row.get('context', '') if not steering else '')
             if row['status'] in ('running', 'needs-you', 'waiting-screen'):
+                if row.get('provider') == 'codex':
+                    self.emit({'event': 'error', 'error': 'Wait for the current Codex turn to finish before continuing.'}); return
                 if text: self.send(row, text)
                 return
             if asked: row.update(made=[], wrote=[])   # its card shows what this request made; the timeline keeps earlier runs
             if self.running() >= 3:
                 if identifier in self.processes: self.stop_process(identifier)
                 row.update(status='queued', step='Queued', followup=text); self.save(row); return
-            row.update(status='running', step='Starting…', seen=False, question=None, missingConnector='', started=time.time())
+            row.pop('journalStatus', None)
+            row.update(status='running', step='Starting…', seen=False, question=None, missingConnector='', started=time.time(), verified=False)
             row.pop('ended', None); row.pop('_routingRetry', None); row.pop('_revived', None)
             self.save(row)   # the shelf appears before any process/model work
+            if row.get('provider') == 'codex':
+                self.start_codex(row, text or row['brief'])
+                return
             try:
                 if identifier not in self.processes:
                     for name in ('allow-task', 'a', 'q', 'screen-wait'):
@@ -4822,6 +5273,66 @@ class Agents:
                     except OSError: self.idle = None
             except OSError as e: self.finish(row, 'failed', str(e))
 
+    def start_codex(self, row, text):
+        """Run a scoped Codex session under the existing agent registry."""
+        identifier = row['id']
+        if not CODEX_AGENT_READY:
+            self.finish(row, 'failed', 'Codex integration is not enabled until its approval controls are complete.'); return
+        if not row.get('folder'):
+            self.finish(row, 'failed', 'Choose and confirm the project folder before starting Codex.'); return
+        if identifier in self.codex_sessions:
+            self.finish(row, 'failed', 'A Codex turn is already running for this agent.'); return
+        def event(update):
+            with self.lock:
+                if identifier not in self.codex_sessions or row.get('status') != 'running': return
+                kind = update.get('type')
+                if kind == 'thread': row['session'] = update['id']; self.save(row)
+                elif kind == 'turn': row['turn'] = update.get('id'); self.save(row)
+                elif kind == 'text': self.emit({'event': 'text', 'id': identifier, 'text': update.get('text', '')})
+                elif kind == 'approval_denied': row['step'] = 'Approval required; request declined'; self.save(row)
+        def approve(request):
+            try: details = json.dumps(request.get('params', {}), ensure_ascii=False, sort_keys=True)
+            except (TypeError, ValueError): return 'cancel'
+            if not details or len(details) > 3000: return 'cancel'
+            event = threading.Event(); token = uuid.uuid4().hex
+            pending = {'token': token, 'event': event, 'decision': 'cancel'}
+            with self.lock:
+                if identifier not in self.codex_sessions or identifier in self.codex_approvals or row.get('status') != 'running' or row.get('cancelRequested'): return 'cancel'
+                self.codex_approvals[identifier] = pending
+                row.update(status='needs-you', step='Approval required', question={'q':'Allow this Codex action?', 'cmd':details, '_a':token})
+                self.save(row)
+            answered = event.wait(600)
+            with self.lock:
+                if self.codex_approvals.get(identifier) is pending: self.codex_approvals.pop(identifier, None)
+                if row.get('status') == 'needs-you' and (row.get('question') or {}).get('_a') == token:
+                    row.update(status='running', step='Working…', question=None); self.save(row)
+            return pending['decision'] if answered else 'cancel'
+        auth_mode = pref('codexAuthMode', 'existing')
+        def codex_api_key():
+            helper = os.environ.get('ATTICUS_DEV_KEYCHAIN_HELPER', '')
+            if not helper: raise keychain_store.KeychainError('The development Keychain helper is unavailable.')
+            store = keychain_store.ProviderKeyStore(DIR, keychain_store.KeychainStore(helper, slot='openai-codex'), slot='openai-codex')
+            return store.get()
+        session = codex_provider.CodexProvider(emit=event, auth_mode=auth_mode, api_key_resolver=codex_api_key, approval_handler=approve)
+        self.codex_sessions[identifier] = session
+        def worker():
+            try: result = session.run(row.get('folder', ''), text, row.get('session'))
+            except codex_provider.ProviderError as error: result = {'status': 'failed', 'result': str(error)}
+            except Exception: result = {'status': 'failed', 'result': 'Codex adapter stopped unexpectedly. Inspect the project before retrying.'}
+            with self.lock:
+                if self.codex_sessions.get(identifier) is not session or row.get('status') != 'running': return
+                self.codex_sessions.pop(identifier, None)
+                row['verified'] = False
+                if row.get('cancelRequested'):
+                    server_status = result.get('server_status')
+                    outcome = {'interrupted':'interrupted', 'completed':'completed_before_cancel', 'failed':'failed'}.get(server_status, 'unknown')
+                    self.finish_codex_cancellation(row, outcome)
+                    return
+                if result['status'] == 'done':
+                    result['result'] = 'Codex turn completed; its work has not been independently verified.\n' + result['result']
+                self.finish(row, result['status'], result['result'])
+        threading.Thread(target=worker, daemon=True).start()
+
     def send(self, row, text):
         if row.get('_directoryLost') or not os.path.isdir(row['directory']):
             self.directory_lost(row); return
@@ -4830,7 +5341,49 @@ class Agents:
         self.write(row['id'], {'type': 'user', 'message': {'role': 'user', 'content': text}})
         self.event(row, {'event': 'followup', 'text': text})
 
+    def finish_codex_cancellation(self, row, outcome):
+        """Persist a receipt and require explicit review before another dispatch."""
+        messages = {
+            'interrupted': 'Codex confirmed interruption; inspect partial changes before continuing.',
+            'completed_before_cancel': 'Codex reported completion after cancellation was requested; inspect the result.',
+            'failed': 'Codex reported failure after cancellation was requested; inspect the project.',
+            'timeout_unknown': 'Cancellation timed out; the outcome is unknown. Inspect the project.',
+            'unknown': 'Cancellation outcome is unknown; inspect the project.',
+        }
+        row.update(status='stopped', step=messages[outcome], result=messages[outcome], ended=time.time(),
+                   seen=True, question=None, verified=False, cancelRequested=False,
+                   cancelOutcome=outcome, cancelReviewRequired=True)
+        self.event(row, {'event':'codex-cancellation-outcome', 'outcome':outcome})
+        self.save(row); self.drain()
+
+    def request_codex_cancellation(self, row, session):
+        identifier = row['id']
+        if row.get('cancelRequested'): return
+        # Retain the active session and slot until a terminal response or timeout.
+        row.update(status='running', step='Cancellation requested; waiting for Codex…',
+                   question=None, cancelRequested=True, cancelRequestedAt=time.time())
+        pending = self.codex_approvals.pop(identifier, None)
+        if pending:
+            pending['decision'] = 'cancel'; pending['answered'] = True; pending['event'].set()
+        self.event(row, {'event':'codex-cancellation-requested'})
+        self.save(row)
+        def timeout():
+            with self.lock:
+                if self.codex_sessions.get(identifier) is not session or not row.get('cancelRequested'): return
+                self.codex_sessions.pop(identifier, None)
+                self.finish_codex_cancellation(row, 'timeout_unknown')
+            threading.Thread(target=session.close, daemon=True).start()
+        timer = threading.Timer(10, timeout); timer.daemon = True; timer.start()
+        def interrupt():
+            try: session.interrupt()
+            except Exception: pass  # timeout records an unknown outcome
+        threading.Thread(target=interrupt, daemon=True).start()
+
     def stop_process(self, identifier):
+        pending = self.codex_approvals.pop(identifier, None)
+        if pending: pending['event'].set()
+        session = self.codex_sessions.pop(identifier, None)
+        if session: session.interrupt(); session.close()
         p = self.processes.pop(identifier, None)
         if p:
             stop_claude(p)
@@ -5132,10 +5685,79 @@ class Agents:
                         elif line.startswith('▸ '): row['step'] = line[2:]; row['steps'].append(line[2:])
                     self.save(row)
 
+    def personal_open(self, data):
+        """Confirmed destination requests run on the already-resident supervisor."""
+        identifier, text = data.get('id'), data.get('text')
+        if (os.environ.get('ATTICUS_AGENT') or os.environ.get('ATTICUS_ASK') or
+                not isinstance(identifier, str) or not re.fullmatch(r'[a-f0-9]{32}', identifier) or
+                not isinstance(text, str) or len(text) > 512 or data.get('confirmed') is not True):
+            return
+        if identifier in self.personal_requests:
+            previous = self.personal_requests[identifier]
+            if previous is not None: self.emit(previous)
+            return
+        row = personal_commands.resolve(DIR, plain(text))
+        # Bound the deduplication cache for misses as well as successful requests.
+        completed = [key for key, value in self.personal_requests.items() if value is not None]
+        for old in completed[:-99]: self.personal_requests.pop(old, None)
+        if not row:
+            result = {'event':'personal-result', 'id':identifier, 'matched':False}
+            self.personal_requests[identifier] = result; self.emit(result); return
+        if row.get('ambiguous'):
+            result = {'event':'personal-result', 'id':identifier, 'matched':True,
+                      'reply':'More than one saved destination matches. Please clarify which one.'}
+            self.personal_requests[identifier] = result; self.emit(result); return
+        self.personal_requests[identifier] = None
+        def work():
+            began = time.monotonic()
+            try:
+                # A binding may be corrected while a request waits to run.
+                current = personal_commands.resolve(DIR, plain(text))
+                if current != row:
+                    reply = 'That saved destination changed. Please try again.'
+                else:
+                    reply = personal_commands.open_destination(row)
+            except Exception: reply = 'I could not confirm the browser action. Check Safari before trying again.'
+            elapsed = round(time.monotonic() - began, 3)
+            outcome = 'unverified' if reply.startswith('Requested ') else 'not_done'
+            recorded = True
+            try:
+                append_log({'id':'personal-'+identifier, 'at':time.strftime('%Y-%m-%d %H:%M:%S'), 'task':text,
+                            'reply':reply, 'status':'completed' if outcome != 'not_done' else 'failed',
+                            'outcome':outcome, 'model':'instant', 'path':'personal-resident', 'secs':elapsed,
+                            'steps':1, 'ran':[], 'pics':0, 'usd':0, 'attempt_usd':[], 'attempt_usage':[]})
+            except OSError: recorded = False
+            result = {'event':'personal-result', 'id':identifier, 'matched':True, 'reply':reply, 'recorded':recorded}
+            with self.lock:
+                self.personal_requests[identifier] = result
+                # Keep recent completed IDs for deduplication; never evict an in-flight request.
+                completed = [key for key, value in self.personal_requests.items() if value is not None]
+                for old in completed[:-100]: self.personal_requests.pop(old, None)
+                if not self.closed: self.emit(result)
+        threading.Thread(target=work, daemon=True).start()
+
     def command(self, data):
         action, identifier = data.get('action'), data.get('id')
         with self.lock:
-            if action == 'prepare': self.prepare(data['brief'])
+            if action == 'personal-open': self.personal_open(data)
+            elif action == 'codex-start':
+                # Dedicated user action: project scope and task must be explicit.
+                folder, task = data.get('folder'), data.get('task')
+                if not isinstance(folder, str) or not os.path.isabs(folder) or not os.path.isdir(folder) or not isinstance(task, str) or not task.strip():
+                    self.emit({'event': 'error', 'error': 'Choose an existing project folder and provide a task.'}); return
+                row = self.new()
+                row.update(provider='codex', folder=os.path.realpath(folder), title=agent_title(task), brief=task, context='', status='offered')
+                self.rows[row['id']] = row; self.save(row); self.start(row['id'], task, evidence=task)
+            elif action == 'select-project' and identifier in self.rows:
+                row, folder = self.rows[identifier], data.get('folder')
+                # Only an explicitly confirmed choice may scope an unstarted Codex offer.
+                if (data.get('confirmed') is not True or row.get('provider') != 'codex' or
+                        row.get('status') != 'offered' or identifier not in self.offers or
+                        not isinstance(folder, str) or not os.path.isabs(folder) or not os.path.isdir(folder)):
+                    return
+                row['folder'] = os.path.realpath(folder); self.save(row)
+                self.emit({'event':'state', 'agent':row})
+            elif action == 'prepare': self.prepare(data['brief'])
             elif action == 'routine':
                 routine = next((row for row in routines() if row.get('id') == identifier), None)
                 if routine and not pref('paused', False):
@@ -5146,6 +5768,14 @@ class Agents:
             elif action in ('start', 'followup') and identifier in self.rows:
                 if action == 'followup' and data.get('text'): self.rows[identifier].setdefault('timeline', []).append({'user': data['text']})
                 self.start(identifier, data.get('text'), evidence=data.get('text') or None if action == 'followup' else None)
+            elif action == 'verify-result' and identifier in self.rows:
+                # This action must only be sent by a user-facing confirmation control.
+                row = self.rows[identifier]
+                if data.get('confirmed') is not True or row.get('status') != 'done': return
+                row['verified'] = True; self.save(row)
+                outcome = journal_verified_agent(row)
+                row['journalStatus'] = outcome['status']; self.save(row)
+                self.emit({'event': 'journal', 'id': identifier, 'status': outcome['status']})
             elif action == 'chats': self.emit({'event': 'chats', 'chats': saved_chats()})
             elif action == 'rename':
                 title = data.get('title')
@@ -5161,9 +5791,18 @@ class Agents:
                 if action == 'cancel' and pending and row['status'] != 'offered':
                     if row['status'] not in ('running', 'needs-you', 'waiting-screen'): self.stop_process(identifier)
                     return
+                session = self.codex_sessions.get(identifier) if row.get('provider') == 'codex' else None
+                if session:
+                    self.request_codex_cancellation(row, session); return
                 self.stop_process(identifier)
-                row.update(status='stopped', step='Stopped', ended=time.time(), seen=True, question=None); self.save(row); self.drain()
+                step = 'Stopped; inspect for partial changes' if row.get('provider') == 'codex' else 'Stopped'
+                row.update(status='stopped', step=step, ended=time.time(), seen=True, question=None); self.save(row); self.drain()
                 threading.Thread(target=close_agent_window, args=(row['directory'],), daemon=True).start()
+            elif action == 'review-cancel' and identifier in self.rows:
+                row = self.rows[identifier]
+                if data.get('confirmed') is not True or row.get('provider') != 'codex' or row.get('status') != 'stopped' or not row.get('cancelReviewRequired'): return
+                row['cancelReviewRequired'] = False; row['cancelReviewedAt'] = time.time()
+                self.event(row, {'event':'codex-cancellation-reviewed', 'outcome':row.get('cancelOutcome','unknown')}); self.save(row)
             elif action == 'granted' and identifier in self.rows and (self.rows[identifier].get('question') or {}).get('waiting'):
                 self.command({'action': 'answer', 'id': identifier, 'question': self.rows[identifier]['question']['_a'], 'answer': 'y', 'granted': True})
             elif action == 'answer' and identifier in self.rows:
@@ -5171,6 +5810,13 @@ class Agents:
                 if row.get('status') != 'needs-you': return
                 if data.get('question') != question.get('_a'): return
                 answer = str(data.get('answer', 'n'))
+                if row.get('provider') == 'codex':
+                    pending = self.codex_approvals.get(identifier)
+                    if pending and pending['token'] == data.get('question') and not pending.get('answered'):
+                        pending['answered'] = True
+                        pending['decision'] = 'accept' if answer == 'y' else 'decline'
+                        pending['event'].set()
+                    return
                 if question.get('need') not in (None, 'page-js') and answer == 'y' and not data.get('granted'):
                     # Allow: Atticus opens the exact place and points at the switch; the agent keeps waiting until it is on
                     question['waiting'] = True; row['step'] = 'Waiting for you to turn it on'; self.save(row)
@@ -5210,7 +5856,7 @@ class Agents:
     def close(self):
         with self.lock:
             self.closed = True
-            for identifier in list(self.processes): self.stop_process(identifier)
+            for identifier in set(self.processes) | set(self.codex_sessions): self.stop_process(identifier)
 
 
 def agents_service():
@@ -5838,12 +6484,12 @@ def run_devin(task, shots=(), request=None):
     return reply or 'Devin returned an empty answer. Please try again.', 0, steps
 
 
-def run_pi(task, shots=(), request=None):
+def run_pi(task, shots=(), request=None, history=None):
     """One confirmed request through Pi's selected provider/model; an explicit extension sends every tool through Atticus's gate."""
     run.cmds = run.ran = []
-    run.error = ''
+    run.error = ''; run.why = ''
     run.ok = False
-    pi = shutil.which('pi')
+    pi = foreground_openai.resolve_pi(DIR, HOME)
     if not pi:
         run.why = 'setup_needed'
         say('!', 'setup')
@@ -5858,15 +6504,74 @@ def run_pi(task, shots=(), request=None):
     with open(extension, 'w') as f:
         f.write(PI_GATE)
     errors = tempfile.TemporaryFile(mode='w+')
-    args = [pi, '--mode', 'json', '--print', '--no-session', '--no-mcp', '--no-skills', '--no-prompt-templates',
-            '--no-context-files', '--no-extensions', '--extension', extension,
-            '--system-prompt', system_prompt(ASK_FIRST if pref('safe', True) else NEVER),
-            '--tools', 'bash,read,grep,find,ls', '--'] + ['@' + path for path, _ in shots if os.path.exists(path)] + ['\n\n'.join(b['text'] for b in user_content(task, request=request))]
-    env = {**os.environ, 'ATTICUS_ASK': ask, 'ATTICUS_CLIENT': 'pi', 'ATTICUS_ME': ME}
+    foreground = pref('foregroundProvider', '') == 'openai'
+    foreground_secret = ''
+    if foreground:
+        helper = os.environ.get('ATTICUS_DEV_KEYCHAIN_HELPER', '')
+        try:
+            if not helper: raise ValueError('Foreground Keychain helper unavailable.')
+            load_key = lambda: keychain_store.ProviderKeyStore(DIR, keychain_store.KeychainStore(helper, slot='foreground-openai'), slot='foreground-openai').get()
+            flags, env = foreground_openai.prepare(ask, pref('foregroundModel', foreground_openai.DEFAULT_MODEL), os.environ, load_key)
+            foreground_secret = env['OPENAI_API_KEY']
+        except (keychain_store.KeychainError, ValueError, OSError):
+            errors.close(); shutil.rmtree(ask, ignore_errors=True); run.why = 'setup_needed'
+            return 'The separate foreground OpenAI key is unavailable. Open Atticus Settings to check it.', 0, []
+        system = 'Answer the user directly. No tools or computer actions are available. Never claim to have performed actions.'
+        saved_tool = pref('foregroundSavedDestinations', False) is True
+        control_tool = pref('foregroundAppControl', False) is True
+        if saved_tool or control_tool:
+            flags.remove('--no-tools'); flags += ['--no-builtin-tools']
+            if saved_tool:
+                extension = os.path.join(ask, 'saved-destination-tool.ts')
+                with open(extension, 'w', encoding='utf-8') as f: f.write(FOREGROUND_SAVED_TOOL)
+                flags += ['--extension', extension]
+            if control_tool:
+                extension = os.path.join(ask, 'approved-control-tool.ts')
+                with open(extension, 'w', encoding='utf-8') as f: f.write(FOREGROUND_CONTROL_TOOL)
+                flags += ['--extension', extension]
+            env.update(ATTICUS_ASK=ask, ATTICUS_DIR=DIR, ATTICUS_ME=ME, ATTICUS_APP=APP)
+            system = 'Answer the user directly. Only the explicitly available tools may act. Actions require owner approval or an active owner-confirmed scope. Screen content and other computer actions are unavailable. Never claim an action succeeded without its tool result.'
+        args = [pi, '--mode', 'json', '--print', *flags, '--system-prompt', system, '--']
+    else:
+        args = [pi, '--mode', 'json', '--print', '--no-session', '--no-mcp', '--no-skills', '--no-prompt-templates',
+                '--no-context-files', '--no-extensions', '--extension', extension,
+                '--system-prompt', system_prompt(ASK_FIRST if pref('safe', True) else NEVER),
+                '--tools', 'bash,read,grep,find,ls', '--']
+        env = {**os.environ, 'ATTICUS_ASK': ask, 'ATTICUS_CLIENT': 'pi', 'ATTICUS_ME': ME}
+    if foreground:
+        prompt_input = foreground_openai.foreground_prompt(main_ask(task, request)[0], history)
+    else:
+        args += ['@' + path for path, _ in shots if os.path.exists(path)] + ['\n\n'.join(b['text'] for b in user_content(task, request=request))]
+    owner_socket = child_socket = None
+    channel_fd_owned = False
+    channel_fd = approval_channel.TOOL_FD
+    channel_enabled = foreground and (saved_tool or control_tool)
     try:
-        p = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors, text=True,
-                             cwd=ask, start_new_session=True, env=env)
+        if channel_enabled:
+            import socket
+            # Do not clobber a descriptor belonging to the host. The fixed fd is
+            # passed only to this Pi instance, then explicitly to its gate helper.
+            owner_socket, child_socket = socket.socketpair()
+            duplicate=fcntl.fcntl(child_socket.fileno(),fcntl.F_DUPFD,channel_fd)
+            if duplicate != channel_fd:
+                os.close(duplicate)
+                raise OSError('Approval descriptor already in use.')
+            channel_fd_owned=True
+            os.set_inheritable(channel_fd,False)
+        p = subprocess.Popen(args, stdin=subprocess.PIPE if foreground else subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors, text=True,
+                             cwd=ask, start_new_session=True, env=env, pass_fds=(channel_fd,) if channel_enabled else ())
+        if channel_enabled:
+            os.close(channel_fd);channel_fd_owned=False;child_socket.close();child_socket=None
+            threading.Thread(target=approval_channel.native_broker,args=(owner_socket,sys.stdin,sys.stdout),daemon=True).start()
+        if foreground:
+            p.stdin.write(prompt_input); p.stdin.close()
     except BaseException:
+        if channel_enabled:
+            if channel_fd_owned:
+                try: os.close(channel_fd)
+                except OSError: pass
+            if child_socket: child_socket.close()
+            if owner_socket: owner_socket.close()
         errors.close()
         raise
     p.ask, p.errors = ask, errors
@@ -5901,6 +6606,10 @@ def run_pi(task, shots=(), request=None):
         p.wait()
     finally:
         deadline.cancel()
+        if owner_socket:
+            try: owner_socket.shutdown(2)
+            except OSError: pass
+            owner_socket.close()
         if sys.exc_info()[0] is not None and p.poll() is None: stop_claude(p)
     p.relay_thread.join(.3)
     rows = read_rows(os.path.join(ask, 'pi-tools.jsonl'))
@@ -5908,6 +6617,8 @@ def run_pi(task, shots=(), request=None):
     cmds = [row['input']['command'] for row in rows if row.get('tool') == 'exec' and row.get('input', {}).get('command')]
     run.ran = cmds
     errors.seek(0); detail = model_error or errors.read(2000).strip()
+    if foreground_secret:
+        detail = detail.replace(foreground_secret, '[redacted]'); reply = reply.replace(foreground_secret, '[redacted]')
     run.cmds = [] if failed or p.returncode or timed_out[0] or model_error or aborted or not reply else cmds
     run.ok = bool(reply and not failed and not p.returncode and not timed_out[0] and not model_error and not aborted)
     if timed_out[0]:
@@ -6159,22 +6870,32 @@ def _memory_locked(operation):
 
 def memory_rules():
     try:
-        with open(MEMORY) as f:
-            return [line.removeprefix('- ').strip() for line in f if line.removeprefix('- ').strip()]
-    except OSError:
+        if os.path.islink(MEMORY): return []
+        with open(MEMORY, 'rb') as f: data = f.read()
+        if data.startswith(memory_rules_store.HEADER.encode()): return [row['text'] for row in memory_rules_store.parse(data)]
+        return [line.removeprefix('- ').strip() for line in data.decode('utf-8').splitlines() if line.removeprefix('- ').strip()]
+    except (OSError, ValueError, UnicodeError):
         return []
 
 
-def _save_memory_rules(rules):
+def _save_memory_rules(rules, renamed=None):
     folder = os.path.dirname(MEMORY)
     os.makedirs(folder, mode=0o700, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode='w', dir=folder, delete=False) as f:
+    if os.path.islink(MEMORY): raise ValueError('Symlinked rule store is unsupported.')
+    try:
+        with open(MEMORY, 'rb') as f: existing = memory_rules_store.parse(f.read())
+    except FileNotFoundError: existing = []
+    if len({r['text'].casefold() for r in existing}) != len(existing): raise ValueError('Ambiguous duplicate rules.')
+    existing = memory_rules_store.migrate(existing)
+    ids = {row['text']: row['id'] for row in existing}
+    if renamed and renamed[0] in ids: ids[renamed[1]] = ids[renamed[0]]
+    rows = [{'text': rule, 'id': ids.get(rule) or uuid.uuid4().hex} for rule in rules]
+    data = memory_rules_store.encode(rows)
+    with tempfile.NamedTemporaryFile(mode='wb', dir=folder, delete=False) as f:
         try:
-            f.writelines('- ' + rule + '\n' for rule in rules)
-            f.flush(); os.fchmod(f.fileno(), 0o600); os.replace(f.name, MEMORY)
+            f.write(data); f.flush(); os.fsync(f.fileno()); os.fchmod(f.fileno(), 0o600); os.replace(f.name, MEMORY)
         finally:
-            if os.path.exists(f.name):
-                os.unlink(f.name)
+            if os.path.exists(f.name): os.unlink(f.name)
 
 
 @_memory_locked
@@ -6193,7 +6914,7 @@ def remember_rule(text):
 def edit_rule(old, new):
     old, new = old.strip(), ' '.join(str(new).split())
     rules = [new if rule == old and new else rule for rule in memory_rules() if rule != old or new]
-    _save_memory_rules(rules)
+    _save_memory_rules(rules, renamed=(old,new) if new else None)
     return 'saved'
 
 
@@ -6633,6 +7354,21 @@ def calendar_tool(args):
         return json.dumps(result, ensure_ascii=False)
     except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
         return 'Calendar could not finish: ' + str(error)[:300]
+
+
+def export_safe_preferences():
+    """A deliberately limited, redacted local export; private categories never leave the store."""
+    facts = []
+    for fact in me().get('facts', []):
+        if fact.get('category') != 'preferences' or fact.get('sensitive') or fact.get('source') != 'you':
+            continue
+        kind, value = fact.get('kind', ''), fact.get('value', '')
+        if SENSITIVE.search(str(kind) + ' ' + str(value)):
+            continue
+        facts.append({'category':'preferences', 'kind':clean(kind), 'value':clean(value),
+                      'source':'you', 'date':fact.get('date', '')})
+    return {'version':1, 'type':'redacted-preferences', 'facts':facts,
+            'excluded':'Other personal memory, rules, workflows, destinations, projects, tasks and credentials.'}
 
 
 def memory_items():
@@ -7374,6 +8110,20 @@ def feedback(data):
 
 def main():
     args = sys.argv[1:]
+    if args == ['--autonomy']:
+        try: return print(json.dumps(autonomy_setup(json.load(sys.stdin))))
+        except (OSError,ValueError,TypeError,subprocess.TimeoutExpired): return print(json.dumps({'error':'Autonomy state unavailable.'}))
+    if args == ['--pi-runtime-diagnostics']:
+        status=foreground_openai.diagnose_runtime(DIR,HOME)
+        return print(json.dumps(status))
+    if args == ['--foreground-control']:
+        try: request=json.load(sys.stdin)
+        except (ValueError,TypeError): request=None
+        return print(json.dumps(foreground_control_request(request)))
+    if args == ['--foreground-saved-tool']:
+        try: request=json.load(sys.stdin)
+        except (ValueError, TypeError): request=None
+        return print(json.dumps(foreground_saved_tool(request)))
     if len(args) == 8 and args[:2] == ['--telemetry', 'dictation']:
         try: dictation_event(args[2], args[3], args[4] == '1', args[5] == '1', args[6] == '1', args[7])
         except (TypeError, ValueError): pass
@@ -7450,7 +8200,7 @@ def main():
     if args[:1] == ['--watch'] and (len(args) in (5, 6) and args[3] in ('gone', 'shows', 'settled') or len(args) in (3, 4) and args[1] == 'cmd'):
         os.makedirs(WATCHING, exist_ok=True)   # the watcher runs on after this ask ends
         # This ask's ATTICUS_* vars would make the follow-up request a refused nested ask; keep only install-wide ones.
-        env = {k: v for k, v in os.environ.items() if not k.startswith('ATTICUS_') or k in ('ATTICUS_DIR', 'ATTICUS_APP', 'ATTICUS_CLAUDE', 'ATTICUS_POSTHOG_KEY')}
+        env = {k: v for k, v in os.environ.items() if not k.startswith('ATTICUS_') or k in ('ATTICUS_DIR', 'ATTICUS_APP', 'ATTICUS_CLAUDE', 'ATTICUS_POSTHOG_KEY', 'ATTICUS_DEV_KEYCHAIN_HELPER')}
         w = subprocess.Popen([sys.executable, ME, '--watching', *args[1:]], start_new_session=True, env=env,
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         Path(WATCHING, str(w.pid)).write_text(' '.join(args[1:]))
@@ -7575,6 +8325,51 @@ def main():
         return
     if args[:1] == ['--history']:
         return print(history(' '.join(args[1:])))
+    if args == ['--memory-transaction']:
+        if os.environ.get('ATTICUS_ASK') or os.environ.get('ATTICUS_AGENT'):
+            return print(json.dumps({'error':'Settings confirmation required.'}))
+        import memory_transactions, memory_corrections, memory_workflows
+        try:
+            data = json.load(sys.stdin)
+            if not isinstance(data, dict): raise ValueError('Invalid request.')
+            allowed = {k:data[k] for k in ('category','action','identifier','revision','value','backup_id','confirmed') if k in data}
+            if allowed.get('category') == 'workflows':
+                allowed.pop('category')
+                return print(json.dumps(memory_workflows.manage(DIR, supported=_skills_supported, validate=lambda key, cmds: all(replayable(c) for c in cmds) and shortcut_commands(key,cmds)==cmds, **allowed)))
+            if allowed.get('category') == 'corrections':
+                allowed.pop('category')
+                return print(json.dumps(memory_corrections.manage(DIR, **allowed)))
+            return print(json.dumps(memory_transactions.manage(DIR, excluded=pref('journalExcludedFolders', []), **allowed)))
+        except (OSError, ValueError, TypeError, KeyError, UnicodeError) as error:
+            return print(json.dumps({'error':str(error)[:250]}))
+    if args == ['--personal-save-document']:
+        if os.environ.get('ATTICUS_ASK') or os.environ.get('ATTICUS_AGENT'): return print(json.dumps({'error':'Settings confirmation required.'}))
+        try:
+            data=json.load(sys.stdin)
+            personal_commands.save_document(DIR,data.get('label'),data.get('path'),[],confirmed=data.get('confirmed') is True)
+            return print(json.dumps({'status':'saved'}))
+        except (OSError,ValueError,TypeError,AttributeError) as error: return print(json.dumps({'error':str(error)[:250]}))
+    if args == ['--memory-destination']:
+        # Only the native Settings controls may issue confirmed mutations.
+        if os.environ.get('ATTICUS_ASK') or os.environ.get('ATTICUS_AGENT'):
+            return print(json.dumps({'error':'Settings confirmation required.'}))
+        import memory_destinations
+        try:
+            data = json.load(sys.stdin)
+            if not isinstance(data, dict): raise ValueError('Invalid request.')
+            allowed = {k:data[k] for k in ('action','label','url','aliases','backup_id','confirmed','revision') if k in data}
+            return print(json.dumps(memory_destinations.manage(DIR, **allowed)))
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            return print(json.dumps({'error':str(error)[:250]}))
+    if args == ['--memory-index-export']:
+        import memory_inspector
+        try:
+            categories=json.load(sys.stdin)
+            return print(json.dumps(memory_inspector.export_metadata(memory_inspector.inspect(DIR, pref('journalExcludedFolders', [])), categories)))
+        except (OSError,ValueError,TypeError) as error:
+            return print(json.dumps({'error':str(error)[:250]}))
+    if args == ['--memory-export-safe']:
+        return print(json.dumps(export_safe_preferences(), ensure_ascii=False))
     if args[:1] == ['--remember']:
         return print(remember_rule(' '.join(args[1:])))
     if args[:1] == ['--rule'] and len(args) == 3:   # Settings: edit one rule in place
@@ -7608,6 +8403,10 @@ def main():
     if args[:1] == ['--queue']:
         return print(queue(' '.join(args[1:])))
     if args == ['--state']:   # the Settings window: usage, saved rules, Claude plan
+        import memory_destinations, memory_inspector, memory_transactions, memory_corrections, memory_workflows
+        exclusions = pref('journalExcludedFolders', [])
+        try: memory_index = memory_inspector.inspect(DIR, exclusions)
+        except ValueError: memory_index = []
         rows = [r for r in read_rows(os.path.join(DIR, 'log.jsonl')) if r.get('status') not in ('not_handled', 'cancelled') and isinstance(r.get('at'), str) and
                 (r.get('usd', 0) is None or isinstance(r.get('usd', 0), (int, float))) and isinstance(r.get('secs', 0), (int, float))]
         agent_rows = agent_usage_rows()
@@ -7626,7 +8425,7 @@ def main():
                 if isinstance(r.get('task'), str) and isinstance(r.get('reply'), str) and r['reply']][-50:][::-1]   # newest first, for History
         return print(json.dumps({'today': use(time.strftime('%Y-%m-%d')), 'week': use(week), 'all': use(''), 'asks': asks,
                                  'rules': [r for r in rules if r], 'plan': plan(),
-                                 'skills': [{'say': k, 'reply': v} for k, v in sorted(learned.items())], 'me': me()}))
+                                 'skills': [{'say': k, 'reply': v} for k, v in sorted(learned.items())], 'me': me(), 'memoryIndex': memory_index, 'memoryBackups': {**memory_transactions.latest_recoverable(DIR), 'corrections':memory_corrections.latest_recoverable(DIR), 'workflows':memory_workflows.latest_recoverable(DIR)}, 'destinationBackup': memory_destinations.latest_recoverable(DIR), 'destinations': [{**{k:r[k] for k in ('label','url','type','path','aliases','source','confirmed','confidence','scope','updated') if k in r}, 'revision':memory_destinations.digest(r)} for r in personal_commands.read(DIR) if isinstance(r,dict) and r.get('confirmed') is True]}))
     if args[:1] == ['--me'] and len(args) > 1:
         action = args[1]
         if action == 'import':
@@ -7653,9 +8452,7 @@ def main():
             return print('Finish and verify the requested actions. Atticus saves shortcuts automatically from their successful tool results; do not write skills.json.')
         if UNSAFE.search(args[2]) or not hands_replayable(args[2]):   # replays run with no AI and no deny list: never anything that deletes or needs admin
             return print('not saved: shortcuts cannot delete files or use sudo')
-        sk = skills()
-        sk[plain(args[1])] = {'cmds': [args[2]], 'reply': 'Done: ' + args[1].strip().rstrip('.') + '.', 'at': time.strftime('%Y-%m-%d'), 'mine': True}
-        save_skills(sk)
+        _save_shortcut(args[1], args[2])
         return print(f'saved: "{plain(args[1])}" runs it')
     if args[:1] == ['--unlearn']:
         return unlearn(' '.join(args[1:]))
@@ -7681,6 +8478,31 @@ def main():
             return print(f'could not read: {e}')
     if INNER or args[:1] and args[0].startswith('--') and args[0] not in ('--wait', '--plan'):   # a mistyped flag from the AI would start a new AI ask, which starts another…
         sys.exit(print('unknown command: ' + ' '.join(args)[:80], file=sys.stderr) or 2)
+    # The explicitly selected foreground OpenAI route is text-only: avoid all
+    # front-window inspection, screenshots, profile lookup and automatic retries.
+    if args == ['--wait'] and os.environ.get('ATTICUS_DEV_KEYCHAIN_HELPER') and pref('client', '') == 'pi' and pref('foregroundProvider', '') == 'openai':
+        line = sys.stdin.readline().strip()
+        try:
+            item = json.loads(line)
+            task = item.get('task', '') if isinstance(item, dict) else ''
+        except ValueError:
+            task = ''
+        if not isinstance(task, str) or not task.strip(): return
+        destination=personal_commands.resolve(DIR,plain(task))
+        if destination and (destination.get('type') == 'document' or destination.get('ambiguous')):
+            if not wait_commit(): return say('!', 'The request was cancelled; nothing was opened.')
+            started=time.time()
+            reply='More than one saved destination matches. Please clarify which one.' if destination.get('ambiguous') else personal_commands.open_destination(destination)
+            log_turn('', '', started,0,0,[],model='instant',path='personal-document',attempt_usd=[])
+            return say('✓' if reply.startswith('Requested ') else '!',reply)
+        state_dir = tempfile.mkdtemp(prefix='atticus-text-')
+        atexit.register(shutil.rmtree, state_dir, True)
+        os.environ['ATTICUS_ASK'] = state_dir
+        started = time.time()
+        history = foreground_openai.bounded_history(item.get('history', []))
+        reply, cost, steps = run_pi(task, request=task, history=history)
+        log_turn('', '', started, cost, steps, getattr(run, 'ran', []), model=pref('foregroundModel', foreground_openai.DEFAULT_MODEL), attempt_usd=[cost])
+        return say('✓' if run.ok else '!', reply)
     state_dir = tempfile.mkdtemp(prefix='atticus-hands-')
     atexit.register(shutil.rmtree, state_dir, True)
     os.environ['ATTICUS_HANDS_STATE'] = os.path.join(state_dir, 'hands.json')
@@ -7949,8 +8771,12 @@ def main():
     if receipt and os.environ.get('ATTICUS_UI') == '1':
         print('✎ ' + json.dumps(receipt, ensure_ascii=False), flush=True)
     # "When I say focus mode, …" saved: a green Learned pill
-    said = shortcut or learned_say   # a new shortcut, named or learned from these words
-    tip(reply, f'Learned: Say “{said}” any time.' if said else 'Learned: Procedure saved for next time.' if workflow else taught[1].strip() if taught else '')
+    candidate = bool(learned_entry and not workflow_trusted(learned_entry))
+    gated = bool(learned_entry and not candidate and any(not instant_replay_allowed(c) for c in learned_entry['cmds']))
+    said = shortcut or (learned_say if not candidate else '')
+    tip(reply, 'Saved as a candidate; confirm the shortcut before instant replay.' if candidate else
+        'Saved; its actions still require the normal approval path.' if gated else
+        f'Learned: Say “{said}” any time.' if said else 'Learned: Procedure saved for next time.' if workflow else taught[1].strip() if taught else '')
     asked = os.path.join(DIR, 'improve-asked')   # people who updated never saw setup's question: ask once a day after a task that worked, until they answer
     if run.ok and not failed and POSTHOG_KEY and not pref('improveAsked', False) and os.environ.get('ATTICUS_UI') == '1' \
             and not (os.path.exists(asked) and Path(asked).read_text() == time.strftime('%Y-%m-%d')):

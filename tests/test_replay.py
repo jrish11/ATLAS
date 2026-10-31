@@ -23,6 +23,7 @@ class ReplayTests(unittest.TestCase):
         self.commands=['open -a Fixture','peekaboo menu click --app "com.atticus.fixture" --path "Fixture > Start meeting" --no-remote',
                        'osascript -e \'tell application "System Events" to get name of every window of process "Fixture"\'']
 
+    @patch.object(atticus, 'instant_replay_allowed', new=lambda command: True)  # exercise legacy mechanics with a simulated gate
     def test_legacy_three_steps_upgrade_and_replay_native_actions_without_ai_or_reads(self):
         (self.root/'skills.json').write_text(json.dumps({'make a fixture meeting':{'cmds':self.commands,'reply':'Started.','mine':True}}))
         with patch.object(atticus,'show',return_value='opened Fixture in the background') as show,patch.object(atticus,'hands',return_value=('Clicked',True)) as hands,patch.object(atticus.subprocess,'run') as shell,patch.object(atticus,'start_claude') as ai:
@@ -80,9 +81,10 @@ class ReplayTests(unittest.TestCase):
         framed='osascript -e \'tell application "System Events"\' -e \'tell process "Fixture" to get name of every window\' -e \'end tell\''
         self.assertEqual(atticus.shortcut_commands('windows',[framed]),[])
 
+    @patch.object(atticus, 'instant_replay_allowed', new=lambda command: True)  # exercise legacy mechanics with a simulated gate
     def test_replay_says_the_outcome_not_how_the_first_run_went(self):
         play='osascript -e \'tell application "Fixture" to play\''
-        (self.root/'skills.json').write_text(json.dumps({'unpause fixture':{'cmds':[play],'reply':'Fixture is playing. The first check still showed it paused, but a second check confirmed it.'}}))
+        (self.root/'skills.json').write_text(json.dumps({'unpause fixture':{'cmds':[play],'reply':'Fixture is playing. The first check still showed it paused, but a second check confirmed it.','mine':True}}))
         with patch.object(atticus.subprocess,'run',return_value=atticus.subprocess.CompletedProcess([],0,'','')):
             self.assertEqual(atticus.fast('unpause fixture'),'Fixture is playing.')
         for whole in ['Done: focus mode.','Typed "Hi! See you." into Mail.','Opened 10 Hail Pl. Tell me the city.','Playing 1M. It runs in the background.','I typed your reply into the mail box. It isn’t sent yet.','Notes is open. Do not close it.']:
@@ -149,12 +151,13 @@ class ReplayTests(unittest.TestCase):
             with patch.object(atticus,'DIR',str(self.root)),patch.object(atticus,'RECENT',str(self.root/'recent.jsonl')),patch.object(atticus,'MEMORY',str(self.root/'memory.md')),patch.object(atticus.threading,'Thread',NoThread),patch('sys.argv',['atticus.py',task]),patch.multiple(atticus,licensed=lambda:True,ping=lambda:None,fast=lambda _:None,front=lambda:('Fixture','Scratch'),osa=lambda *a:'',screens=lambda:[],describe=lambda *a:'Scratch display',selection_context=lambda:'',screen_for=lambda *a:None,run=brain,wait_commit=lambda:True,restore_focus=lambda *a:None,say=lambda *a:None,tip=tip,look=lambda:[],hands_map=lambda *a:None,cached_hands=lambda:None):
                 with patch.object(atticus,'app_id',return_value='com.example.fixture'),patch.object(atticus,'app_running',return_value=False): atticus.main()
             return tip.call_args.args[1]
-        self.assertEqual(ask('Close fixture','Fixture is closed.',[quit,check]),'Learned: Say “Close fixture” any time.')
+        self.assertEqual(ask('Close fixture','Fixture is closed.',[quit,check]),'Saved as a candidate; confirm the shortcut before instant replay.')
         self.assertEqual(atticus.skills()['close fixture']['cmds'],[quit])
         self.assertEqual(atticus.recent()[-1]['shortcut']['key'],'close fixture')
         self.assertEqual(ask('Close fixture','Fixture is closed.',[quit,check]),'')   # already known: no pill
         self.assertEqual(ask('Tidy fixture','Tidied. [workflow tidy fixture | Use the View menu.]',[f'{atticus.HANDS} see Fixture']),'Learned: Procedure saved for next time.')
 
+    @patch.object(atticus, 'instant_replay_allowed', new=lambda command: True)  # exercise legacy mechanics with a simulated gate
     def test_instant_quit_uses_bundle_id_verifies_and_beats_old_skill(self):
         old='osascript -e \'tell application "Fixture Display" to quit\''
         atticus.save_skills({'close fixture display':{'cmds':[old],'reply':'Old false success.','mine':True},
@@ -179,6 +182,7 @@ class ReplayTests(unittest.TestCase):
             self.assertTrue(atticus.quit_app('com.example.fixture'))
         osa.assert_called_once_with('tell application id "com.example.fixture" to quit',timeout=2)
 
+    @patch.object(atticus, 'instant_replay_allowed', new=lambda command: True)  # exercise legacy mechanics with a simulated gate
     def test_user_reported_failure_unlearns_without_saving_the_correction(self):
         command='osascript -e \'tell application "Fixture" to set visible to false\''
         atticus.save_skills({'hide fixture':{'cmds':[command],'reply':'Fixture is hidden.','mine':True}})
@@ -210,6 +214,7 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(brain.call_args.kwargs['request'],'It is still visible')
         self.assertNotIn('hide fixture',atticus.skills())
 
+    @patch.object(atticus, 'instant_replay_allowed', new=lambda command: True)  # exercise legacy mechanics with a simulated gate
     def test_unrelated_ask_after_replay_keeps_the_shortcut(self):
         command='osascript -e \'tell application "Fixture" to set visible to false\''
         atticus.save_skills({'hide fixture':{'cmds':[command],'reply':'Fixture is hidden.','mine':True}})
@@ -250,6 +255,7 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(say.call_args.args[1],'Done.')
         self.assertEqual(atticus.recent()[-1]['a'],'Done.')
 
+    @patch.object(atticus, 'instant_replay_allowed', new=lambda command: True)  # exercise legacy mechanics with a simulated gate
     def test_failed_replay_is_redone_and_successful_recovery_replaces_it(self):
         quit='osascript -e \'tell application "Fixture" to quit\''
         atticus.save_skills({'bye fixture':{'cmds':[quit],'reply':'Fixture is closed.','mine':True}})
@@ -285,7 +291,7 @@ class ReplayTests(unittest.TestCase):
         prompt=brain.call_args.args[0]
         self.assertIn('still open',prompt);self.assertIn('failed (see its output): redo the request',prompt)
         self.assertEqual(atticus.skills()['bye fixture']['cmds'],[replacement])
-        self.assertEqual(tip.call_args.args[1],'Learned: Say “bye fixture” any time.')
+        self.assertEqual(tip.call_args.args[1],'Saved as a candidate; confirm the shortcut before instant replay.')
 
     def test_a_quit_that_is_still_running_is_not_learned(self):
         command='osascript -e \'tell application id "com.example.fixture" to quit\''

@@ -270,7 +270,7 @@
 </style></head><body>
 
 <nav>
-  <div class="me"><img id="icon" alt=""><div><b>Atticus</b><span>Just ask.</span></div></div>
+  <div class="me"><img id="icon" alt=""><div><b>ATLAS</b><span>Just ask.</span></div></div>
   <button id="agentsnav" aria-label="Open Agents"><i class="ni" style="background:#30b0c7"><svg viewBox="0 0 24 24"><rect x="4" y="8" width="13" height="12" rx="2.5"/><path d="M8 4.5h9.5A2.5 2.5 0 0 1 20 7v9"/></svg></i>Agents<span class="count" id="agentcount"></span></button>
   <button data-s="dictation" id="dictationnav"><i class="ni" style="background:#ff375f"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M8 21h8"/></svg></i>Dictation</button>
   <button data-s="general" class="on" aria-current="page"><i class="ni" style="background:#8e8e93"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></i>General</button>
@@ -281,7 +281,6 @@
   <button data-s="account"><i class="ni" style="background:#0a84ff"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></i>Account &amp; Access</button>
   <button data-s="about"><i class="ni" style="background:#bf5af2"><svg viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4M5 19h14"/></svg></i>About &amp; Updates</button>
   <div class="spacer"></div>
-  <button data-s="feedback" id="feedbacknav">Report feedback<svg class="out" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 16 16 8M9.5 8H16v6.5"/></svg></button>
   <div class="ver" id="ver"></div>
 </nav>
 
@@ -337,16 +336,16 @@
     </div>
     <h3>Answers</h3>
     <div class="group">
-      <div class="row"><div class="t"><b>Show answers</b><span>Word by word as Atticus writes, or all at the end.</span></div><div class="seg" data-k="showAnswers"><button data-v="stream">As they arrive</button><button data-v="once">All at once</button></div></div>
+      <div class="row"><div class="t"><b>Show answers</b><span>Word by word as ATLAS writes, or all at the end.</span></div><div class="seg" data-k="showAnswers"><button data-v="stream">As they arrive</button><button data-v="once">All at once</button></div></div>
       <div class="row"><div class="t"><b>Read answers aloud</b><span>Esc stops it.</span></div><label class="sw"><input type="checkbox" data-k="speak"></label></div>
       <div class="row"><div class="t"><b>Draw on screen to show you</b><span>Esc clears. To mark a spot yourself, use Point at your screen.</span></div><label class="sw"><input type="checkbox" data-k="draw" aria-label="Draw on screen to show you"></label></div>
     </div>
-    <h3>Atticus</h3>
+    <h3>ATLAS</h3>
     <div class="group">
       <div class="row"><div class="t"><b>Open at login</b></div><label class="sw"><input type="checkbox" data-k="login"></label></div>
-      <div class="row"><div class="t"><b>Pause Atticus</b></div><label class="sw"><input type="checkbox" data-k="paused"></label></div>
+      <div class="row"><div class="t"><b>Pause ATLAS</b></div><label class="sw"><input type="checkbox" data-k="paused"></label></div>
       <div class="row"><div class="t"><b>Show in menu bar</b><span>Hidden? Open it from Spotlight.</span></div><label class="sw"><input type="checkbox" data-k="menuIcon"></label></div>
-      <div class="row"><div class="t"><b>Quit Atticus</b><span>Reopen it from Spotlight.</span></div><button class="btn red" data-do="quit">Quit</button></div>
+      <div class="row"><div class="t"><b>Quit ATLAS</b><span>Reopen it from Spotlight.</span></div><button class="btn red" data-do="quit">Quit</button></div>
     </div>
     <h3>Scheduled routines</h3>
     <div class="group" id="routines"></div>
@@ -354,9 +353,12 @@
 
   <section id="brain">
     <h1>Intelligence</h1>
-    <p class="lede" id="brainlede">Atticus thinks with Claude, on your Claude plan.</p>
+    <p class="lede" id="brainlede">ATLAS thinks with Claude, on your Claude plan.</p>
+    <button class="btn" id="setupPiRuntime" hidden>Set up ATLAS runtime…</button>
     <h3>Model</h3>
     <div class="group">
+      <div class="row"><div class="t"><b>Open saved Safari destinations</b><span>Experimental foreground OpenAI tool. Each opening requires your approval and may require Safari Automation permission; it has not been tested on this Mac. Other computer actions remain unavailable.</span></div><label class="sw"><input type="checkbox" data-k="foregroundSavedDestinations" aria-label="Open saved Safari destinations"></label></div>
+      <div class="row"><div class="t"><b>Approved app control</b><span>Experimental: open or focus an installed app, or press a named Accessibility control. Every action needs approval; Accessibility permission may be required. Screen text is not sent.</span></div><label class="sw"><input type="checkbox" data-k="foregroundAppControl" aria-label="Approved app control"></label></div>
       <div class="row"><div class="t"><b>AI client</b><span id="clientwhy"></span></div><div class="seg" data-k="client"><button data-v="claude">Claude</button><button data-v="devin">Devin</button><button data-v="pi">Pi</button></div></div>
       <div class="row"><div class="t"><b>Intelligence</b><span id="routingwhy"></span></div><div class="seg" data-k="routing"><button data-v="cheapest">Cheapest</button><button data-v="balanced">Balanced</button><button data-v="capable">Most capable</button></div></div>
       <div class="row"><div class="t"><b>Work model</b><span>Opus is stronger, uses more of your plan.</span></div><div class="seg" data-k="model"><button data-v="sonnet">Sonnet</button><button data-v="opus">Opus</button></div></div>
@@ -365,11 +367,21 @@
     <div class="group" id="agentsettings">
       <div class="row"><div class="t"><b>Use my Claude Code tools</b><span>MCP servers, skills and plugins.</span></div><label class="sw"><input type="checkbox" data-k="agentUserTools"></label></div>
     </div>
+    <div id="codexKeychainSection" hidden>
+      <h3>Codex authentication</h3>
+      <div class="group">
+        <div class="row"><div class="t"><b>Codex account</b><span>Scoped Codex tasks use your existing account login. The foreground OpenAI API key is separate; Codex live tasks remain disabled in this build.</span></div><div class="seg" data-k="codexAuthMode"><button data-v="existing">Existing login</button><button data-v="api_key">API key</button></div></div>
+        <div class="row"><div class="t"><b>Codex API key</b><span id="codexKeyStatus"></span></div><input class="field" id="codexApiKey" type="password" placeholder="Set or replace key" aria-label="Codex API key"></div>
+        <div class="row"><div class="t"><b>Codex key storage</b></div><button class="btn" id="migrateLegacyCodexKey" hidden>Move existing key…</button><button class="btn" id="discardLegacyCodexKey" hidden>Remove old key…</button><button class="btn" id="deleteCodexApiKey" hidden>Remove key…</button></div>
+      <div class="row" id="bothLegacyKeys" hidden><div class="t"><b>Two old plaintext keys</b><span>Choose how to resolve both keys.</span></div><button class="btn" id="migrateBothProviderKeys">Move both…</button><button class="btn" id="discardBothProviderKeys">Remove both…</button></div>
+      </div>
+    </div>
     <h3>Custom server</h3>
     <div class="group">
       <div class="row" id="localserver" hidden><div class="t"><b id="localname"></b><span>Already running on this Mac.</span></div><button class="btn blue" id="uselocal"></button></div>
       <div class="row"><div class="t"><b>Address</b><span>Ollama, LM Studio or any Claude-style API.</span></div><input class="field" id="apiBase" placeholder="https://api.deepseek.com/anthropic" spellcheck="false" aria-label="Custom server address"></div>
       <div class="row"><div class="t"><b>Key</b></div><input class="field" id="apiKey" type="password" placeholder="Not needed for local servers" aria-label="Custom server key"></div>
+      <div class="row" id="keychainControls" hidden><div class="t"><b>Provider key storage</b><span id="keychainStatus"></span></div><button class="btn" id="migrateProviderKey" hidden>Move existing key…</button><button class="btn" id="discardLegacyProviderKey" hidden>Remove old key…</button><button class="btn" id="deleteProviderKey" hidden>Remove key…</button></div>
       <div class="row"><div class="t"><b>Model</b><span id="srvnote" role="status">Needs vision for screen tasks.</span></div><input class="field" id="apiModel" list="apimodels" placeholder="deepseek-flash" spellcheck="false" aria-label="Custom server model"><datalist id="apimodels"></datalist></div>
       <div class="row" id="agentServerModel" hidden><div class="t"><b>Agent model</b><span>For background agents.</span></div><input class="field" id="agentApiModel" list="apimodels" placeholder="Same as main model" spellcheck="false" aria-label="Custom server agent model"></div>
     </div>
@@ -387,9 +399,20 @@
       <div class="row"><div class="t"><b>Save chats</b><span>Plain conversations, in Agents on this Mac. <i class="info" title="Answers that changed nothing. They never go with your asks.">i</i></span></div><label class="sw"><input type="checkbox" data-k="saveChats"></label></div>
       <div class="row"><div class="t"><b>Learn about me</b><span>Keeps lasting facts you say. <i class="info" title="Never from screen text, health, money or passwords.">i</i></span></div><label class="sw"><input type="checkbox" data-k="learnMe"></label></div>
     </div>
+    <div class="row"><div class="t"><b>Export redacted preferences</b><span>Local JSON only; other memory is excluded. Review the file before sharing.</span></div><button class="btn" data-do="memoryExportSafe">Export…</button></div>
     <h3>Rules</h3>
     <div class="group" id="rules" data-category="rules"></div>
     <p class="lede" style="margin:9px 2px 0;font-size:11.5px">Say “remember…” or add one here.</p>
+    <h3>Memory index</h3>
+    <p class="lede">Search local records. Folder exclusions apply to projects and tasks; unscoped sessions are hidden when exclusions are set.</p>
+    <input class="field" id="memoryIndexSearch" type="search" placeholder="Search memory" aria-label="Search memory index">
+    <div id="memoryCategories"></div><div class="group" id="memoryIndexList"></div>
+    <div id="memoryTransactionStatus" role="status"></div><div id="memoryUndo"></div>
+    <button class="btn" id="memoryIndexExport">Export selected categories' metadata…</button>
+    <h3>Saved destinations</h3>
+    <input class="field" id="destinationSearch" type="search" placeholder="Search destinations" aria-label="Search saved destinations">
+    <div class="group" id="destinationList"></div>
+    <div id="destinationStatus" role="status"></div><button class="btn" id="addDocumentDestination">Add local document…</button> <button class="btn" id="destinationUndo" hidden>Restore last change</button>
     <h3>Saved commands and procedures</h3>
     <div class="group" id="skills"></div>
   </section>
@@ -410,7 +433,7 @@
   <section id="apps">
     <button class="btn" id="appsback" onclick="st.tab('account')">← Account &amp; Access</button>
     <h1><i class="ni" style="background:#ff453a" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg></i>Apps</h1>
-    <p class="lede">Tick the apps Atticus can control. Allow them now so it won’t stop to ask.</p>
+    <p class="lede">Tick the apps ATLAS can control. Allow them now so it won’t stop to ask.</p>
     <div class="appbar"><div class="seg" id="appview" role="group" aria-label="App list"><button data-v="key" class="on" aria-pressed="true">Key Apps</button><button data-v="all" aria-pressed="false">All Apps</button></div>
       <input id="appq" class="search" placeholder="Search all apps" aria-label="Search all apps"><button class="btn blue" id="allow" disabled>Allow</button></div>
     <div id="applist"><div class="group"><div class="empty">Finding your apps…</div></div></div>
@@ -419,7 +442,7 @@
 
   <section id="account">
     <h1>Account &amp; Access</h1>
-    <p class="lede">What Atticus needs to work.</p>
+    <p class="lede">What ATLAS needs to work.</p>
     <div class="group">
       <div class="row"><div class="t"><b id="planname">Claude</b><span class="status"><i class="dot" id="pdot"></i><span id="ptext">Checking…</span></span></div><button class="btn" data-do="setup" id="pbtn">Set Up</button></div>
     </div>
@@ -430,9 +453,14 @@
     <h3>Privacy</h3>
     <div class="group">
       <div class="row"><div class="t"><b>Look at my screen</b><span>Only when you mean it, like “this”. <i class="info" title="The picture goes with that one ask.">i</i></span></div><div class="seg" data-k="screen"><button data-v="auto">Automatic</button><button data-v="never">Never</button></div></div>
-      <div class="row"><div class="t"><b>Hide from screen sharing</b><span id="sharingUnavailable" hidden>On this macOS version, Atticus windows can appear in screen sharing.</span></div><label class="sw"><input type="checkbox" data-k="hideWhenSharing"></label></div>
-      <div class="row"><div class="t"><b>Count me as a user</b><span>Anonymous feature, timing and error counts. <i class="info" title="A random ID, with no task text, dictated words, files or screen content.">i</i></span></div><label class="sw"><input type="checkbox" data-k="stats"></label></div>
-      <div class="row"><div class="t"><b>Help improve Atticus</b><span>Anonymous reports when a task fails. <i class="info" title="Sends what you asked, the steps it took and why. Emails, numbers, file paths and anything typed for you are removed first.">i</i></span></div><label class="sw"><input type="checkbox" data-k="improve"></label></div>
+      <div class="row"><div class="t"><b>Hide from screen sharing</b><span id="sharingUnavailable" hidden>On this macOS version, ATLAS windows can appear in screen sharing.</span></div><label class="sw"><input type="checkbox" data-k="hideWhenSharing"></label></div>
+    </div>
+    <h3>Obsidian activity</h3>
+    <div class="group">
+      <div class="row"><div class="t"><b>Log verified agent work</b><span>Off by default; logs only results you verify. <i class="info" title="Each verified task is a separate immutable entry; existing notes are not overwritten.">i</i></span></div><label class="sw"><input type="checkbox" data-k="journalEnabled"></label></div>
+      <div class="row"><div class="t"><b>Existing vault folder</b><span>Enter the full path to your existing Obsidian vault.</span></div><input class="field" id="journalVault" aria-label="Existing Obsidian vault folder"></div>
+      <div class="row"><div class="t"><b>Excluded folders</b><span>Separate full paths with semicolons. <i class="info" title="When exclusions are set, tasks with unknown folders are skipped.">i</i></span></div><input class="field" id="journalExcludedFolders" aria-label="Excluded folders"></div>
+      <div class="row"><div class="t"><b>Excluded title words</b><span>Semicolon-separated words or phrases.</span></div><input class="field" id="journalExcludedTerms" aria-label="Excluded title words"></div>
     </div>
     <h3>Permissions</h3>
     <div class="group" id="perms">
@@ -445,7 +473,7 @@
     <h3>Agents</h3>
     <div class="group" id="agentsetup">
       <div class="row"><div class="t"><b>Set up agents</b><span>Asked only when a task needs them.</span></div><button class="btn blue" id="enableAll">Enable All</button></div>
-      <div class="row"><div class="t"><b>Page reading in Chrome</b><span>Atticus turns this on itself.</span></div><span class="pill ok">On</span><button class="btn" data-g="chrome">Turn On</button></div>
+      <div class="row"><div class="t"><b>Page reading in Chrome</b><span>ATLAS turns this on itself.</span></div><span class="pill ok">On</span><button class="btn" data-g="chrome">Turn On</button></div>
       <div class="row"><div class="t"><b>Automation</b><span>Lets agents script your apps.</span></div><span class="pill ok">Allowed</span><button class="btn" data-g="auto">Allow</button></div>
       <div class="row"><div class="t"><b>Calendar</b><span>When you ask.</span></div><span class="pill ok">Allowed</span><button class="btn" data-g="calendar">Allow</button></div>
       <div class="row"><div class="t"><b>Claude connectors</b><span id="conntext">Checking your Claude account…</span></div><button class="btn" data-do="connectors">Connect in Claude</button></div>
@@ -481,18 +509,16 @@
   </section>
 
   <section id="about">
-    <div class="about"><img id="bigicon" alt=""><h1>Atticus</h1><p id="aboutver"></p></div>
+    <div class="about"><img id="bigicon" alt=""><h1>ATLAS</h1><p>Personal fork of Atticus, with upstream Atticus and Plip attribution.</p><p id="aboutver"></p></div>
     <h3>Updates</h3>
     <div class="group">
       <div class="row" id="autoUpdateRow"><div class="t"><b>Update automatically</b><span>Restarts when you’re not using it.</span></div><label class="sw"><input type="checkbox" data-k="autoUpdate"></label></div>
       <div class="row"><div class="t"><b id="updateTitle">Check for updates</b><span id="upstatus">Never checked this session.</span></div><button class="btn" data-do="checkUpdate" id="checkUpdate">Check Now</button></div>
     </div>
-    <h3>Atticus</h3>
+    <h3>ATLAS</h3>
     <div class="group">
       <div class="row"><div class="t"><b>Source code</b><span>On GitHub.</span></div><button class="btn" data-do="github">Open</button></div>
-      <div class="row"><div class="t"><b>Support Atticus</b><span>A tip keeps it going.</span></div><button class="btn" data-do="kofi">Leave a Tip</button></div>
-      <div class="row"><div class="t"><b>Tip reminders</b><span>Now and then, a small ask under an answer.</span></div><label class="sw"><input type="checkbox" data-k="support"></label></div>
-      <div class="row"><div class="t"><b>Ideas when I’m away</b><span>Now and then, a short idea if you haven’t used Atticus.</span></div><label class="sw"><input type="checkbox" data-k="comeBack"></label></div>
+      <div class="row"><div class="t"><b>Ideas when I’m away</b><span>Now and then, a short idea if you haven’t used ATLAS.</span></div><label class="sw"><input type="checkbox" data-k="comeBack"></label></div>
     </div>
   </section>
   <section id="feedback">
@@ -510,9 +536,10 @@
   const $ = id => document.getElementById(id);
   const esc = t => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));   // for text put into innerHTML
   const post = m => window.webkit?.messageHandlers.st.postMessage(m);
+  $('setupPiRuntime').onclick=()=>post({do:'setupPiRuntime'});
   let P = {};
   let hotkeyTaken = false, dictateHotkeyTaken = false;   // another app owns a saved shortcut, so it does nothing
-  const shortcutHint = () => hotkeyTaken ? 'Another app uses this shortcut. Change it to use Atticus.' : P.input === 'type' ? 'Press to type. Return sends.' : P.talkMode === 'toggle' ? 'Press to listen. Press again to send.' : 'Hold it, talk, let go.';
+  const shortcutHint = () => hotkeyTaken ? 'Another app uses this shortcut. Change it to use ATLAS.' : P.input === 'type' ? 'Press to type. Return sends.' : P.talkMode === 'toggle' ? 'Press to listen. Press again to send.' : 'Hold it, talk, let go.';
   const set = (k, v) => { P[k] = v; post({ do: 'set', k, v }); paint(); };
   // One status line for the whole window, with an optional action. It fades on its own; a waiting deletion happens when it goes.
   let noticeTimer, pending = null;   // pending: {msg, sel}, a deletion its Undo can still take back
@@ -637,6 +664,8 @@
   [['wdownload', 'whisperDownload'], ['wcancel', 'whisperCancel'], ['wdelete', 'whisperDelete']].forEach(([b, d]) => $(b).onclick = () => post({ do: d, id: wid() }));
   document.querySelectorAll('.seg[data-k]').forEach(g => g.querySelectorAll('button').forEach(b => b.onclick = () => set(g.dataset.k, b.dataset.v)));
   document.querySelectorAll('.sw input[data-k]').forEach(i => i.onchange = () => set(i.dataset.k, i.checked));
+  $('journalVault').onchange = e => set('journalVault', e.target.value.trim());
+  ['journalExcludedFolders','journalExcludedTerms'].forEach(k => $(k).onchange = e => set(k, e.target.value.split(';').map(x => x.trim()).filter(Boolean)));
   document.querySelector('[data-k=wakeWordName]').onchange = e => set('wakeWordName', e.target.value.trim());
   document.querySelectorAll('input[type=range]').forEach(r => {
     r.oninput = () => { P[r.dataset.k] = +r.value; paint(); };
@@ -676,6 +705,7 @@
     $('talkhint').textContent = P.talkMode === 'toggle' ? 'Pauses keep listening.' : 'Esc cancels.';
     document.querySelector('[data-k=talkMode]').closest('.row').hidden = P.input === 'type';
     document.querySelectorAll('.sw input[data-k]').forEach(i => i.checked = !!P[i.dataset.k]);
+    ['journalVault','journalExcludedFolders','journalExcludedTerms'].forEach(k => { const e=$(k); if(document.activeElement !== e) e.value=Array.isArray(P[k]) ? P[k].join('; ') : (P[k] || ''); });
     const wakeName = document.querySelector('[data-k=wakeWordName]');
     if (document.activeElement !== wakeName) wakeName.value = P.wakeWordName || '';
     document.querySelectorAll('select').forEach(s => {
@@ -687,11 +717,24 @@
     $('volv').textContent = Math.round(P.volume / .6 * 100) + '%';
     $('routingwhy').textContent = WHY[P.routing] || '';
     SERVER.forEach(k => { if (document.activeElement !== $(k)) $(k).value = P[k] || ''; });
+    $('keychainControls').hidden = !P.keychainMode;
+    $('codexKeychainSection').hidden = !P.keychainMode;
+    const bothLegacy = !!P.legacyApiKeyPresent && !!P.legacyCodexApiKeyPresent;
+    $('bothLegacyKeys').hidden = !bothLegacy;
+    $('migrateLegacyCodexKey').hidden = !P.legacyCodexApiKeyPresent || bothLegacy;
+    $('discardLegacyCodexKey').hidden = !P.legacyCodexApiKeyPresent || bothLegacy;
+    $('deleteCodexApiKey').hidden = !P.codexApiKeyConfigured || !!P.legacyCodexApiKeyPresent;
+    $('codexKeyStatus').textContent = P.legacyCodexApiKeyPresent ? 'An existing plaintext key requires explicit migration.' : P.codexApiKeyConfigured ? 'Saved in this Mac’s Keychain.' : 'No Keychain key saved.';
+    if(document.activeElement !== $('codexApiKey')) $('codexApiKey').value = '';
+    $('migrateProviderKey').hidden = !P.legacyApiKeyPresent || bothLegacy;
+    $('discardLegacyProviderKey').hidden = !P.legacyApiKeyPresent || bothLegacy;
+    $('deleteProviderKey').hidden = !P.apiKeyConfigured || !!P.legacyApiKeyPresent;
+    $('keychainStatus').textContent = P.legacyApiKeyPresent ? 'An existing plaintext key requires explicit migration.' : P.apiKeyConfigured ? 'Saved in this Mac’s Keychain.' : 'No Keychain key saved.';
     $('agentServerModel').hidden = !P.apiBase || other;
-    $('brainlede').textContent = devin ? 'Atticus thinks with Devin, on your Devin plan.' : pi ? 'Atticus thinks with the provider and model selected in Pi.'
-      : P.apiBase ? 'Atticus thinks with the model on your custom server.' : 'Atticus thinks with Claude, on your Claude plan.';
-    $('clientwhy').textContent = devin ? 'Devin CLI, with Atticus’s safety check.'
-      : pi ? 'Pi CLI, local models too, with Atticus’s safety check.'
+    $('brainlede').textContent = devin ? 'ATLAS thinks with Devin, on your Devin plan.' : pi ? (P.foregroundProvider === 'openai' ? 'Foreground answers use the OpenAI API through Pi. Codex uses a separate account login.' : 'ATLAS thinks with the provider and model selected in Pi.')
+      : P.apiBase ? 'ATLAS thinks with the model on your custom server.' : 'ATLAS thinks with Claude, on your Claude plan.';
+    $('clientwhy').textContent = devin ? 'Devin CLI, with ATLAS’s safety check.'
+      : pi ? (P.foregroundProvider === 'openai' ? 'Foreground OpenAI API through Pi; separate from Codex account login.' : 'Pi CLI; foreground OpenAI setup is separate from Codex account login.')
       : P.apiBase ? 'Uses your server below.' : 'No API key needed.';
     document.querySelector('[data-k=routing]').closest('.row').hidden = other || !!P.apiBase;
     document.querySelector('[data-k=model]').closest('.row').hidden = other || !!P.apiBase || P.routing === 'cheapest';
@@ -705,7 +748,7 @@
 
   function paintRoutines() {
     const root = $('routines'); root.replaceChildren();
-    if (!P.routines?.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'No routines yet. Ask Atticus to schedule one.'; root.append(empty); return; }
+    if (!P.routines?.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'No routines yet. Ask ATLAS to schedule one.'; root.append(empty); return; }
     for (const routine of P.routines) {
       const row = document.createElement('div'); row.className = 'row rule';
       const text = document.createElement('div'); text.className = 't';
@@ -725,7 +768,73 @@
   }
 
   const money = u => '$' + u.toFixed(u < .01 ? 4 : 2);
+  const memoryKinds = ['profile','rules','destinations','projects','workflows','corrections','tasks','sessions'];
+  let memoryRows = [], memoryBackups = {};
+  for (const kind of memoryKinds) {
+    const label = document.createElement('label'), check = document.createElement('input'); check.type='checkbox'; check.value=kind; check.className='memoryKind';
+    label.append(check, document.createTextNode(' '+kind+' ')); $('memoryCategories').append(label);
+    check.onchange=paintMemoryIndex;
+  }
+  function paintMemoryIndex() {
+    const selected = [...document.querySelectorAll('.memoryKind:checked')].map(x=>x.value), q=$('memoryIndexSearch').value.toLowerCase(), root=$('memoryIndexList');root.replaceChildren();
+    for (const r of memoryRows.filter(x=>(!selected.length || selected.includes(x.category)) && `${x.title} ${x.category}`.toLowerCase().includes(q))) {
+      const row=document.createElement('div'); row.className='row'; const text=document.createElement('div'); text.className='t';
+      const title=document.createElement('b');title.textContent=r.title; const info=document.createElement('span');info.textContent=`${r.category} · ${r.source || 'unknown'} · ${r.scope || 'unknown'} · confirmed: ${r.confirmed === true ? 'yes' : 'no'}${r.confidence == null ? '' : ' · confidence '+r.confidence}`;
+      text.append(title,info);row.append(text);
+      if (r.identifier && r.revision && ['profile','rules','projects','corrections','workflows'].includes(r.category)) {
+        let value, folder, aliases;
+        if (r.category === 'projects') {
+          folder=document.createElement('input'); folder.className='field'; folder.value=r.folder; folder.setAttribute('aria-label',`Folder for ${r.title}`);
+          aliases=document.createElement('input'); aliases.className='field'; aliases.value=(r.aliases || []).join(', '); aliases.setAttribute('aria-label',`Aliases for ${r.title}`);
+          text.append(folder,aliases);
+        } else {
+          value=document.createElement(r.category==='workflows' ? 'textarea' : 'input'); value.className='field'; value.value=r.editValue || ''; value.setAttribute('aria-label',`Value for ${r.title}`); text.append(value);
+        }
+        const request=action=>({do:'memoryTransaction',action,category:r.category,identifier:r.identifier,revision:r.revision,title:r.title,...(action==='edit' ? {value:r.category==='projects' ? {folder:folder.value,aliases:aliases.value.split(',').map(x=>x.trim()).filter(Boolean)} : value.value} : {})});
+        const save=document.createElement('button');save.className='btn';save.textContent='Save';save.onclick=()=>post(request('edit'));
+        const remove=document.createElement('button');remove.className='btn red';remove.textContent='Forget';remove.onclick=()=>post(request('delete'));row.append(save,remove);
+      }
+      root.append(row);
+    }
+    if(!root.children.length)root.textContent='No matching records.';
+  }
+  function paintMemoryUndo() {
+    const root=$('memoryUndo');root.replaceChildren();
+    for(const category of ['profile','rules','projects','corrections','workflows']) if(memoryBackups[category]) {
+      const button=document.createElement('button');button.className='btn';button.textContent=`Restore last ${category} change`;
+      button.onclick=()=>post({do:'memoryTransaction',category,action:'restore',backup_id:memoryBackups[category]});root.append(button);
+    }
+  }
+  $('memoryIndexSearch').oninput=paintMemoryIndex;
+  $('memoryIndexExport').onclick=()=>post({do:'memoryIndexExport',categories:[...document.querySelectorAll('.memoryKind:checked')].map(x=>x.value)});
+  let destinationRows = [], destinationBackup = '';
+  function paintDestinations() {
+    const query = $('destinationSearch').value.toLowerCase();
+    const root = $('destinationList'); root.replaceChildren();
+    for (const row of destinationRows.filter(r => `${r.label} ${(r.aliases || []).join(' ')}`.toLowerCase().includes(query))) {
+      const wrap = document.createElement('div'); wrap.className = 'row rule';
+      const text = document.createElement('div'); text.className = 't';
+      const title = document.createElement('b'); title.textContent = row.label;
+      if (row.type === 'document') {
+        const detail=document.createElement('span');detail.textContent='Local document · '+(row.path || '');
+        const remove=document.createElement('button');remove.className='btn red';remove.textContent='Forget';remove.onclick=()=>post({do:'memoryDestination',action:'delete',label:row.label,revision:row.revision});
+        text.append(title,detail);wrap.append(text,remove);root.append(wrap);continue;
+      }
+      const detail = document.createElement('span'); detail.textContent = `${row.source || 'unknown'} · ${row.scope || 'unknown'} · confidence ${row.confidence ?? 'unknown'}`;
+      const url = document.createElement('input'); url.className = 'field'; url.value = row.url || ''; url.setAttribute('aria-label', `Address for ${row.label}`);
+      const aliases = document.createElement('input'); aliases.className = 'field'; aliases.value = (row.aliases || []).join(', '); aliases.setAttribute('aria-label', `Aliases for ${row.label}`);
+      const save = document.createElement('button'); save.className = 'btn'; save.textContent = 'Save'; save.onclick = () => post({do:'memoryDestination', action:'edit', label:row.label, revision:row.revision, url:url.value, aliases:aliases.value.split(',').map(x=>x.trim()).filter(Boolean)});
+      const remove = document.createElement('button'); remove.className = 'btn red'; remove.textContent = 'Forget'; remove.onclick = () => post({do:'memoryDestination', action:'delete', label:row.label, revision:row.revision});
+      text.append(title,detail,url,aliases); wrap.append(text,save,remove); root.append(wrap);
+    }
+    if (!root.children.length) root.textContent = 'No matching destinations.';
+  }
+  $('addDocumentDestination').onclick=()=>post({do:'addDocumentDestination'});
+  $('destinationSearch').oninput = paintDestinations;
+  $('destinationUndo').onclick = () => post({do:'memoryDestination',action:'restore',backup_id:destinationBackup});
   function state(s) {
+    memoryRows = s.memoryIndex || []; memoryBackups = s.memoryBackups || {}; paintMemoryIndex(); paintMemoryUndo();
+    destinationRows = s.destinations || []; destinationBackup = s.destinationBackup || ''; $('destinationUndo').hidden = !destinationBackup; paintDestinations();
     $('stats').innerHTML = [['Today', s.today], ['7 days', s.week], ['All time', s.all]].map(([n, u]) =>
       `<div class="stat"><small>${n}</small><b>${u.unknown ? '≥' : ''}${money(u.usd)}</b><span>${u.asks} asks ${money(u.askUsd ?? u.usd)} · ${u.agentCalls || 0} agent calls ${money(u.agentUsd || 0)}${u.asks ? ' · ' + u.secs + ' s avg' : ''}</span></div>`).join('') +
       (s.all.asks ? `<div class="stat"><small>Avg response</small><b>${s.all.secs} s</b><span>per ask, all time</span></div>` +
@@ -735,16 +844,25 @@
       `<div class="row rule"><input class="field" data-rule="${i}" value="${esc(r)}" aria-label="Edit rule"><button class="x" data-i="${i}" aria-label="Forget this rule">${ICON.trash}</button></div>`).join('')
       : '<div class="empty">No rules yet.</div>') +
       '<div class="add"><input id="newrule" placeholder="When I say focus mode, close Slack and open Notes" aria-label="New rule"><button class="btn blue" id="addrule">Add</button></div>';
-    $('rules').querySelectorAll('[data-i]').forEach(b => b.onclick = () => undoable({ do: 'forget', line: s.rules[+b.dataset.i] }, `#rules [data-i="${b.dataset.i}"]`, 'Rule forgotten.'));
-    document.querySelectorAll('[data-rule]').forEach(input => input.onchange = () => {   // emptied = forgotten
-      const v = input.value.trim(), old = s.rules[+input.dataset.rule]; post(v ? { do: 'rule', old, text: v } : { do: 'forget', line: old });
+    $('rules').querySelectorAll('[data-i]').forEach(b => {
+      const old=s.rules[+b.dataset.i], matches=memoryRows.filter(r=>r.category==='rules' && r.editValue===old && r.revision), record=matches.length===1 ? matches[0] : null;
+      b.disabled=!record;
+      b.onclick=()=>{if(record) post({do:'memoryTransaction',category:'rules',action:'delete',identifier:record.identifier,revision:record.revision,title:record.title});};
+    });
+    document.querySelectorAll('[data-rule]').forEach(input => {
+      const old=s.rules[+input.dataset.rule], matches=memoryRows.filter(r=>r.category==='rules' && r.editValue===old && r.revision), record=matches.length===1 ? matches[0] : null;
+      input.readOnly=!record;
+      input.onchange=()=>{if(record) {const value=input.value.trim();post({do:'memoryTransaction',category:'rules',action:value ? 'edit' : 'delete',identifier:record.identifier,revision:record.revision,title:record.title,...(value ? {value} : {})});}};
     });
     const add = () => { const v = $('newrule').value.trim(); if (v) post({ do: 'remember', line: v }); };
     $('newrule').value = typed; $('addrule').onclick = add; $('newrule').onkeydown = e => { if (e.key === 'Enter') add(); };
     $('skills').innerHTML = (s.skills || []).length ? s.skills.map((k, i) =>
       `<div class="row rule"><div class="t"><b>“${esc(k.say)}”</b><span>${esc(k.reply)}</span></div><button class="x" data-u="${i}" aria-label="Forget this command or procedure">${ICON.trash}</button></div>`).join('')
       : '<div class="empty">None yet. What works lands here.</div>';
-    document.querySelectorAll('[data-u]').forEach(b => b.onclick = () => undoable({ do: 'unlearn', say: s.skills[+b.dataset.u].say }, `[data-u="${b.dataset.u}"]`, 'Command forgotten.'));
+    document.querySelectorAll('[data-u]').forEach(b => {
+      const say=s.skills[+b.dataset.u].say, matches=memoryRows.filter(r=>r.category==='workflows' && r.title===say && r.revision), record=matches.length===1 ? matches[0] : null;
+      b.disabled=!record; b.onclick=()=>{if(record) post({do:'memoryTransaction',category:'workflows',action:'delete',identifier:record.identifier,revision:record.revision,title:record.title});};
+    });
     paintProfile(s.me || { facts: [] }); hidePending();
     $('ptext').textContent = s.plan.text; $('pdot').classList.toggle('bad', !s.plan.ok);
     $('pbtn').style.display = s.plan.ok ? 'none' : '';
@@ -799,18 +917,27 @@
     }).join('');
     document.querySelectorAll('.profile-category').forEach(d => d.ontoggle = () => d.open ? openProfile.add(d.dataset.category) : openProfile.delete(d.dataset.category));
     document.querySelectorAll('[data-profile-id]').forEach(input => {
-      input.onchange = () => { if (input.value.trim()) post({do:'me',action:'set',id:input.dataset.profileId,text:input.value.trim()}); };
+      const record=memoryRows.find(r=>r.category==='profile' && r.identifier===input.dataset.profileId && r.revision);
+      input.readOnly=!record;
+      input.onchange=()=>{
+        if(!record)return;
+        const prefix=record.title+': ', text=input.value.trim();
+        if(!text.startsWith(prefix) || !text.slice(prefix.length).trim()) { $('memoryTransactionStatus').textContent='Keep the fact label and enter a value; use the Memory index to forget it.'; return; }
+        post({do:'memoryTransaction',category:'profile',action:'edit',identifier:record.identifier,revision:record.revision,title:record.title,value:text.slice(prefix.length).trim()});
+      };
       input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } };
     });
-    document.querySelectorAll('[data-profile-drop]').forEach(b => b.onclick = () => undoable({do:'me',action:'drop',id:b.dataset.profileDrop}, `[data-profile-drop="${CSS.escape(b.dataset.profileDrop)}"]`, 'Detail deleted.'));
+    document.querySelectorAll('[data-profile-drop]').forEach(b => {
+      const record=memoryRows.find(r=>r.category==='profile' && r.identifier===b.dataset.profileDrop && r.revision);
+      b.disabled=!record;
+      b.onclick=()=>{if(record) post({do:'memoryTransaction',category:'profile',action:'delete',identifier:record.identifier,revision:record.revision,title:record.title});};
+    });
     document.querySelectorAll('[data-profile-add]').forEach(input => {
       const add = () => { if (input.value.trim()) post({do:'me',action:'add',category:input.dataset.profileAdd,text:input.value.trim()}); };
       input.nextElementSibling.onclick = add; input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
     });
     const sourceName = {you:'you',contacts:'contacts',mail:'mail',learned:'learned'};
-    $('profileSources').innerHTML = Object.keys(sourceName).filter(source => sourceCounts[source]).map(source =>
-      `<button class="btn red" data-profile-source="${source}">Forget everything from ${sourceName[source]} · ${sourceCounts[source]}</button>`).join('');
-    document.querySelectorAll('[data-profile-source]').forEach(b => b.onclick = () => post({do:'me',action:'forget-source',source:b.dataset.profileSource}));
+    $('profileSources').textContent = Object.keys(sourceName).filter(source => sourceCounts[source]).map(source => `${sourceName[source]} · ${sourceCounts[source]}`).join('  |  ');
     const imported = (sourceCounts.contacts || 0) + (sourceCounts.mail || 0);
     $('profileImport').textContent = imported ? 'Refresh' : 'Import from your Mac';
     if (imported && !$('profileStatus').textContent) $('profileStatus').textContent = `${sourceCounts.contacts || 0} from Contacts · ${sourceCounts.mail || 0} from Mail`;
@@ -821,9 +948,16 @@
     $('srvnote').textContent = P.apiBase ? 'Checking the server…' : 'Needs vision for screen tasks.';
     if (P.apiBase) post({ do: 'models' });
   };
-  SERVER.forEach(k => { const e = $(k); e.onchange = () => { set(k, e.value.trim()); if (['apiBase', 'apiKey'].includes(k)) probe(); };
+  SERVER.forEach(k => { const e = $(k); e.onchange = () => {
+    if (k === 'apiKey' && P.keychainMode) { const secret=e.value.trim(); e.value=''; if(secret) post({do:'set',k,v:secret}); return; }
+    set(k, e.value.trim()); if (['apiBase', 'apiKey'].includes(k)) probe(); };
     e.onkeydown = ev => { if (ev.key === 'Enter') e.blur(); }; });
   ['apiModel', 'agentApiModel'].forEach(k => $(k).onfocus = () => { if (P.apiBase) post({ do: 'models' }); });
+  $('migrateProviderKey').onclick = () => post({do:'migrateProviderKey'});
+  $('discardLegacyProviderKey').onclick = () => post({do:'discardLegacyProviderKey'});
+  $('deleteProviderKey').onclick = () => post({do:'deleteProviderKey'});
+  $('codexApiKey').onchange = e => { const secret=e.target.value.trim(); e.target.value=''; if(secret && P.keychainMode) post({do:'set',k:'codexApiKey',v:secret}); };
+  ['migrateLegacyCodexKey','discardLegacyCodexKey','deleteCodexApiKey','migrateBothProviderKeys','discardBothProviderKeys'].forEach(id => $(id).onclick = () => post({do:id}));
 
   // Apps: every installed app; suggested ones start ticked. Atticus.swift asks macOS about the ticked ones in one go.
   let APPS = [], pick = null, asking = 0, total = 0, view = 'key';
@@ -923,6 +1057,8 @@
   $('feedbacktext').oninput=()=>{feedbackInvalidate();feedbackTimer=setTimeout(feedbackRequest,300);};
   $('feedbackopen').onclick=()=>post({do:'feedbackOpen'});
   window.st = {
+    memoryTransactionResult(result) { $('memoryTransactionStatus').textContent = result.error || `Memory ${result.status}.`; },
+    destinationResult(result) { $('destinationStatus').textContent = result.error || `Destination ${result.status}.`; if (result.backup) { destinationBackup = result.backup; $('destinationUndo').hidden = false; } if (result.status === 'restored') { destinationBackup = ''; $('destinationUndo').hidden = true; } },
     feedback(result){if(result.revision!==feedbackRevision)return;if(result.error){$('feedbackbody').textContent=result.error;$('feedbackopen').disabled=true;return;}if(result.include!==$('feedbackinclude').checked)return;$('feedbackbody').textContent=result.body;$('feedbackopen').disabled=false;},
     profileImport(result) {
       $('profileImport').disabled = false;
@@ -965,7 +1101,7 @@
       document.querySelectorAll('[data-g]').forEach(b => { b.hidden = !!p[b.dataset.g]; b.previousElementSibling.hidden = !p[b.dataset.g]; });
     },
     notice(n) { showNotice(n.text); },
-    flush() { return flush(false); },   // the window is closing: Atticus.swift runs the waiting deletion
+    flush() { return flush(false); },   // the window is closing: ATLAS.swift runs the waiting deletion
     tab(name) { openSection(name); },
     reveal(item) { want = item; reveal(); },
     apps(list) {
@@ -984,16 +1120,17 @@
     whisper(s) { W = s; paintWhisper(); },
     globe(on) { $('globefix').hidden = !on; },   // fn alone also fires macOS's own 🌐 action
     load(d) {
+      $('setupPiRuntime').hidden = !d.devRuntimeSetup;
       P = {talkMode: 'hold', dictateMode: 'verbatim', dictateHotkeyLabel: '', microphone: 'automatic', whisperModel: 'turbo', whisperLanguage: 'auto', meetingSave: true, meetingSummary: true, client: 'claude', ...d.prefs}; recording = '';
       P.routines = d.routines || []; paintRoutines();
       $('shortcut').classList.remove('rec'); $('change').textContent = 'Change Shortcut'; $('dictatechange').classList.remove('rec');
       hotkeyTaken = !!d.hotkeyTaken; dictateHotkeyTaken = !!d.dictateHotkeyTaken; if ($('schint').className !== 'warn') $('schint').className = hotkeyTaken ? 'taken' : '';
       if (d.icon) $('icon').src = $('bigicon').src = d.icon;
-      $('ver').textContent = $('aboutver').textContent = d.version ? 'Version ' + d.version : 'Atticus';
-      $('autoUpdateRow').hidden = $('checkUpdate').hidden = !!d.managedUpdates;
+      $('ver').textContent = $('aboutver').textContent = d.version ? (d.manualUpdates ? 'ATLAS v3 · Version ' : 'Version ') + d.version : 'ATLAS';
+      $('autoUpdateRow').hidden = $('checkUpdate').hidden = !!(d.managedUpdates || d.manualUpdates);
       $('sharingUnavailable').hidden = !d.sharingUnavailable;
-      $('updateTitle').textContent = d.managedUpdates ? 'Updates are managed by Nix' : 'Check for updates';
-      $('upstatus').textContent = d.update || 'Never checked this session.';
+      $('updateTitle').textContent = d.manualUpdates ? 'Manual updates' : d.managedUpdates ? 'Updates are managed by Nix' : 'Check for updates';
+      $('upstatus').textContent = d.manualUpdates ? 'Use the latest trusted ATLAS package when available. This build does not check or install updates.' : d.update || 'Never checked this session.';
       if (d.mics) this.mics(d.mics);
       this.globe(d.globeTaken);
       paint(); if (!P.apiBase) post({do:'localServers'}); if (d.state) state(d.state);
@@ -1004,9 +1141,9 @@
       select.value = [...select.options].some(o => o.value === value) ? value : 'automatic';
     },
     rec(m) { if (recording === 'dictate') /^Add/.test(m) || !m ? showKeys('', m || 'Type Shortcut') : showKeys(m); else if (recording) /^Add/.test(m) ? showCaps('', m) : showCaps(m, m ? '' : 'Press your shortcut'); },   // held modifiers, live
-    taken(kind, own) {   // own: the keys are Atticus's other shortcut
+    taken(kind, own) {   // own: the keys are ATLAS's other shortcut
       const dictate = kind === 'dictate', line = $(dictate ? 'dictatehint' : 'schint');
-      line.textContent = own ? `That’s already your ${dictate ? 'Atticus' : 'dictation'} shortcut. Kept your old one.` : 'Another app already uses that shortcut. Kept your old one.'; line.className = 'warn';
+      line.textContent = own ? `That’s already your ${dictate ? 'ATLAS' : 'dictation'} shortcut. Kept your old one.` : 'Another app already uses that shortcut. Kept your old one.'; line.className = 'warn';
       setTimeout(() => { line.className = ''; paint(); if (!dictate) { $('schint').className = hotkeyTaken ? 'taken' : ''; $('schint').textContent = shortcutHint(); } }, 4000);
     },
     state,

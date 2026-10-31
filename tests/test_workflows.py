@@ -74,7 +74,9 @@ class WorkflowTests(unittest.TestCase):
         atticus.learn('Um, make a new Zoom meeting', atticus.run.cmds, reply)
         self.assertEqual(atticus.skills()['make a new zoom meeting']['cmds'], [atticus.HANDS+' menu zoom.us \'Zoom Workplace > Start meeting\''])
         with patch.object(atticus, 'hands', return_value=('Clicked Start meeting', True)):
-            self.assertEqual(atticus.fast('start a zoom meeting'), 'Your Zoom meeting started.')
+            self.assertIsNone(atticus.fast('start a zoom meeting'))  # one observation is not enough
+            for _ in range(2): atticus.learn('Um, make a new Zoom meeting', atticus.run.cmds, reply)
+            self.assertIsNone(atticus.fast('start a zoom meeting'))  # observation never grants replay authorization
         atticus.learn('click new meeting', [atticus.HANDS + ' click 245,340'], 'Done.')   # a screen spot moves: never learned
         self.assertNotIn('click new meeting', atticus.skills())
 
@@ -135,9 +137,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(saved)
         self.assertEqual(reply, 'Your meeting started.')
         with patch.object(atticus, 'hands', return_value=('Clicked Start meeting', True)) as action:
-            self.assertEqual(atticus.fast('Make a zoom meeting.'), 'Your meeting started.')
+            self.assertIsNone(atticus.fast('Make a zoom meeting.'))  # observed once: require more evidence
+            for _ in range(2):
+                atticus.remember_workflow('Um, can you make a new Zoom meeting?',
+                    f'Your meeting started. [workflow start zoom meeting | Use the Zoom menu; check the meeting window.] [replay {cmd}]', True, [cmd])
+            self.assertIsNone(atticus.fast('Make a zoom meeting.'))  # menu actions return to the normal gate
             self.assertIsNone(atticus.fast('make a zoom call'))   # different words that matter: the AI decides
-        self.assertEqual(action.call_args_list[0].args, ('menu', 'us.zoom.xos', 'Zoom Workplace > Start meeting'))
+        action.assert_not_called()
         for bad in [atticus.HANDS + ' click 1,2', 'rm -rf ~/x', atticus.HANDS + ' see x']:
             atticus.remember_workflow('do thing', f'Done. [workflow do thing | a] [replay {bad}]', True, ['open x'])
             self.assertNotIn('do thing', atticus.skills())
@@ -230,8 +236,9 @@ class WorkflowTests(unittest.TestCase):
         Path(atticus.SKILLS).write_text(json.dumps(saved))
         with patch.object(atticus.json,'dump',side_effect=OSError('disk full')):
             with self.assertRaises(OSError): atticus.save_skills({'new':{'mine':True}})
-        self.assertEqual(atticus.skills(),saved)
-        self.assertEqual(list(Path(atticus.DIR).iterdir()),[Path(atticus.SKILLS)])
+        self.assertEqual(json.loads(Path(atticus.SKILLS).read_text()),saved)
+        self.assertEqual(atticus.skills()['original']['cmds'], saved['original']['cmds'])
+        self.assertEqual({p.name for p in Path(atticus.DIR).iterdir()}, {Path(atticus.SKILLS).name, 'workflows.lock'})
         atticus.save_skills(saved)
         self.assertEqual(Path(atticus.SKILLS).stat().st_mode & 0o777,0o600)
 

@@ -362,14 +362,14 @@
 <button class="btn quiet" id="skip-all">Skip All</button>
 <section class="page" id="welcome">
   <div id="orbwrap" class="r"><canvas id="orb"></canvas></div>
-  <h1 class="r">Meet Atticus</h1>
+  <h1 class="r">Meet ATLAS</h1>
   <p class="sub r" id="welcome-talk">Hold the shortcut, say what you need, let go. Your Mac does the rest.</p>
   <div class="keys r" id="welkeys"><div class="key">⌃</div><div class="key">⌥</div><div class="key wide">Space</div></div>
   <button class="btn r" data-go="perms">Get Started</button>
 </section>
 
 <section class="page" id="perms">
-  <h2 class="r">Give Atticus a hand</h2>
+  <h2 class="r">Give ATLAS a hand</h2>
   <p class="sub r">macOS asks once for each one. You can change them any time in System Settings.</p>
   <div id="list" class="r"></div>
   <div id="count" class="r"></div>
@@ -379,7 +379,7 @@
 <section class="page" id="agents">
   <h2 class="r">Agents keep working while you do</h2>
   <p class="sub r">Hand off a bigger task and keep asking. An agent uses these only when a task needs them.</p>
-  <div class="cap r">Atticus turns these on</div>
+  <div class="cap r">ATLAS turns these on</div>
   <div class="list r" id="own"></div>
   <div class="cap r">Only you can allow these. macOS and Claude ask you directly.</div>
   <div class="list r" id="yours"></div>
@@ -444,7 +444,7 @@
 <section class="page" id="point">
   <div class="kicker r">Draw on screen</div>
   <h2 class="r">It shows you, right on screen</h2>
-  <p class="sub r">Ask how to do something and Atticus marks each spot, one step at a time. Ask it to explain something and draw it, and the drawing builds up like a whiteboard.</p>
+  <p class="sub r">Ask how to do something and ATLAS marks each spot, one step at a time. Ask it to explain something and draw it, and the drawing builds up like a whiteboard.</p>
   <div class="stage r" id="ptstage" aria-hidden="true">
     <div id="pt-win"><div class="tb"><i></i><i></i><i></i></div>
       <div class="it"><b style="background:#8e8e93"></b>General</div>
@@ -468,7 +468,7 @@
 <section class="page" id="work">
   <div class="kicker r">Your plan, your pace</div>
   <h2 class="r">Quick asks stay quick</h2>
-  <p class="sub r"><span id="wk-plan">Choose how much of your plan Atticus uses. </span>A long ask moves to a background agent by itself, so you keep working. ⌃⌥↩ moves one sooner.</p>
+  <p class="sub r"><span id="wk-plan">Choose how much of your plan ATLAS uses. </span>A long ask moves to a background agent by itself, so you keep working. ⌃⌥↩ moves one sooner.</p>
   <div class="stage r" aria-hidden="true">
     <div class="fake gone2" id="wk-box"><div class="q">“Find standing desks under $600”</div><div id="wk-line">Searching the web…</div></div>
     <div class="fake gone2" id="wk-chip"><small id="wk-state">Agent · working</small><b>Standing desks</b><u></u></div>
@@ -494,30 +494,7 @@
   <div class="mt-row r"><div class="ic" style="background:#30b0c7"><svg viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/></svg></div>
     <div class="txt"><b>Turn on Meeting Copilot<span class="beta">Beta</span></b><span id="mt-hint"></span></div>
     <label class="sw"><input type="checkbox" data-k="meeting" aria-label="Meeting Copilot"></label></div>
-  <div class="bar2 r"><button class="btn quiet" data-go="improve">Skip</button><button class="btn" data-go="improve">Next</button></div>
-</section>
-
-<section class="page" id="improve">
-  <div class="kicker r">Optional</div>
-  <h2 class="r">Help make Atticus better</h2>
-  <p class="sub r">When a task fails, Atticus can tell its maker what went wrong, so the next version gets it right. Change it anytime in Settings.</p>
-  <div class="list r">
-    <div class="row"><div class="ic" style="background:#0a84ff"><svg viewBox="0 0 24 24"><path d="M5 5h14v10H10l-5 4z"/></svg></div>
-      <div class="txt"><b>Only what failed</b><span>What you asked, the steps Atticus took, and why it didn’t work.</span></div></div>
-    <div class="row"><div class="ic" style="background:#30d158"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>
-      <div class="txt"><b>Anonymous</b><span>A random ID. Never your name, your screen, your files or passwords.</span></div></div>
-    <div class="row"><div class="ic" style="background:#8e8e93"><svg viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a15 15 0 0 1-2.7 3.2M6.6 7.6A15 15 0 0 0 3 12s4 6 9 6a9 9 0 0 0 3.4-.7"/></svg></div>
-      <div class="txt"><b>Cleaned first</b><span>Emails, numbers, file paths and anything typed for you are removed before it leaves your Mac.</span></div></div>
-  </div>
-  <div class="bar2 r"><button class="btn quiet" data-improve="false">Not Now</button><button class="btn" data-improve="true">Help Improve</button></div>
-</section>
-
-<section class="page" id="tip">
-  <div id="tip-heart" class="r" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></div>
-  <h2 class="r">Atticus is free and open source</h2>
-  <p class="sub r">If you ever find yourself enjoying Atticus, a small tip goes a long way. It keeps Atticus free for everyone, and it would really support me.</p>
-  <div class="bar2 r"><button class="btn" id="kofi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>Leave a Tip</button><button class="btn quiet" data-go="done" id="tip-next">Next</button></div>
-  <p class="done-note r">You can always find “Leave a Tip” in the menu bar later.</p>
+  <div class="bar2 r"><button class="btn quiet" data-go="done">Skip</button><button class="btn" data-go="done">Next</button></div>
 </section>
 
 <section class="page" id="done">
@@ -542,22 +519,24 @@
       <li class="idea right" style="--x:50%;--y:281px;--i:14;--c:#30b0c7"><span><b><svg viewBox="0 0 24 24"><path d="M4 7h15l-3-3M20 17H5l3 3"/></svg></b>“Convert this JPEG to PNG”</span></li>
     </ul>
   </div>
-  <h1 class="r">Go use Atticus. <span>Be great.</span></h1>
+  <h1 class="r">Go use ATLAS. <span>Be great.</span></h1>
   <p class="sub r" id="done-sub">Hold the shortcut anywhere and try one.</p>
-  <button class="btn r" id="finish">Start Using Atticus</button>
-  <p class="done-note r" id="feedback-note">Atticus is new and growing, and your feedback helps a lot. <button class="alt" id="feedback-link">Report feedback ↗</button></p>
+  <button class="btn r" id="finish">Start Using ATLAS</button>
+
 </section>
 
 <div id="prov" hidden role="dialog" aria-modal="true" aria-labelledby="prov-h">
   <div class="card">
-    <h3 id="prov-h">Choose your AI provider</h3>
-    <p>Atticus thinks with one of these. Change it anytime in Settings.</p>
+    <h3 id="prov-h">Connect ATLAS</h3>
+    <p>Foreground answers use your OpenAI API key through the Pi runtime. Codex uses your existing ChatGPT account separately; Codex jobs are not yet enabled in this build.</p>
     <div role="radiogroup" aria-labelledby="prov-h">
-      <button class="opt" role="radio" data-p="claude"><span class="dot"></span><div class="txt"><b>Claude</b><span>Your Claude Pro or Max plan, through Claude Code.</span></div></button>
-      <button class="opt" role="radio" data-p="devin"><span class="dot"></span><div class="txt"><b>Devin</b><span>Your Devin plan, through the Devin CLI.</span></div></button>
-      <button class="opt" role="radio" data-p="pi"><span class="dot"></span><div class="txt"><b>Pi</b><span>The provider and model set in the Pi CLI, including local models.</span></div></button>
-      <button class="opt" role="radio" data-p="server"><span class="dot"></span><div class="txt"><b>Custom server</b><span>Ollama, LM Studio, DeepSeek or any Claude-style API.</span></div></button>
+      <button class="opt" role="radio" data-p="pi"><span class="dot"></span><div class="txt"><b>OpenAI API via Pi</b><span>Foreground answers use your separately configured OpenAI API key.</span></div></button>
+      <details><summary>Other providers</summary>
+      <button class="opt" role="radio" data-p="claude"><span class="dot"></span><div class="txt"><b>Claude</b><span>Optional Claude Code provider.</span></div></button>
+      <button class="opt" role="radio" data-p="devin"><span class="dot"></span><div class="txt"><b>Devin</b><span>Optional Devin CLI provider.</span></div></button>
+      <button class="opt" role="radio" data-p="server"><span class="dot"></span><div class="txt"><b>Custom server</b><span>Ollama, LM Studio or another compatible server.</span></div></button></details>
     </div>
+    <button class="alt" id="setup-pi-runtime" hidden>Set up ATLAS runtime…</button>
     <div class="chips" id="local-offer" hidden><span id="local-running"></span><button class="chip" id="local-use"></button></div>
     <div id="srv" hidden>
       <div class="chips"><span>Quick fill</span><button class="chip" data-base="http://localhost:11434">Ollama</button><button class="chip" data-base="http://localhost:1234">LM Studio</button><button class="chip" data-base="https://api.deepseek.com/anthropic">DeepSeek</button></div>
@@ -566,7 +545,7 @@
       <input class="fld" id="srv-model" list="srv-models" placeholder="Model" spellcheck="false" aria-label="Model"><datalist id="srv-models"></datalist>
       <div id="srv-note" aria-live="polite"></div>
     </div>
-    <div class="acts"><button class="btn quiet" id="prov-cancel">Cancel</button><button class="btn" id="prov-use">Use Claude</button></div>
+    <div class="acts"><button class="btn quiet" id="prov-cancel">Cancel</button><button class="btn" id="prov-use">Use OpenAI API via Pi</button></div>
   </div>
 </div>
 
@@ -576,9 +555,10 @@
 <script type="module">
   const $ = id => document.getElementById(id);
   const post = m => window.webkit?.messageHandlers.ob.postMessage(m);
-  const pages = ['welcome', 'perms', 'agents', 'try', 'mac', 'text', 'dictate', 'point', 'work', 'meeting', 'improve', 'tip', 'done'];
+  $('setup-pi-runtime').onclick=()=>post({do:'setupPiRuntime'});
+  const pages = ['welcome', 'perms', 'agents', 'try', 'mac', 'text', 'dictate', 'point', 'work', 'meeting', 'done'];
   let cur = '', orbWake = null;
-  const skip = id => ['devin', 'pi'].includes(provider) && ['agents', 'work'].includes(id);   // their CLIs run no Atticus agents
+  const skip = id => ['devin', 'pi'].includes(provider) && ['agents', 'work'].includes(id);   // their CLIs run no ATLAS agents
   const go = id => {
     while (skip(id)) id = pages[pages.indexOf(id) + 1];
     if (recording) post({ do: 'cancelRecord' });
@@ -587,15 +567,12 @@
     for (const page of pages) { $(page).inert = page !== id; $(page).setAttribute('aria-hidden', String(page !== id)); }
     [...$('dots').children].forEach((d, i) => { d.classList.toggle('on', pages[i] === id); d.hidden = skip(pages[i]); });
     $('back').hidden = pages.indexOf(id) < 1;
-    $('skip-all').hidden = pages.indexOf(id) >= pages.indexOf('improve');
+    $('skip-all').hidden = pages.indexOf(id) >= pages.indexOf('done');
   };
   document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
   $('back').onclick = () => { let i = pages.indexOf(cur) - 1; while (skip(pages[i])) i--; go(pages[i]); };
-  $('skip-all').onclick = () => go('improve');   // skips the tour only: the improve, tip and done pages still show
+  $('skip-all').onclick = () => go('done');   // skip the tour
   $('finish').onclick = () => post({ do: 'done' });
-  $('kofi').onclick = () => post({ do: 'kofi' });
-  $('feedback-link').onclick = () => post({ do: 'feedback' });   // Settings → Report feedback, over this window
-  document.querySelectorAll('[data-improve]').forEach(b => b.onclick = () => { post({ do: 'set', k: 'improve', v: b.dataset.improve }); go('tip'); });
   document.querySelectorAll('.sw input').forEach(i => i.onchange = () => post({ do: 'set', k: i.dataset.k, v: String(i.checked) }));
   let prefs = {};
   const WHY = { cheapest: 'Haiku for every ask. Fastest, and uses the least of your plan.', balanced: 'Haiku for quick asks. Your work model takes over real work.',
@@ -653,7 +630,7 @@
     ['ax', 'Accessibility', 'Moves windows and clicks buttons for you.', '#0a84ff', '<circle cx="12" cy="4.5" r="1.6"/><path d="M5 8.5l7 1.5 7-1.5M12 10v4.5M12 14.5l-3 6M12 14.5l3 6"/>'],
     ['screen', 'Screen Recording', 'Looks at your screen when you say “this”.', '#bf5af2', '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20h7M12 16.5V20"/>'],
     ['chrome', 'Chrome Pages', 'Reads and clicks web pages in Chrome, in the background.', '#34c759', '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="M12 8.5h8.2M9 13.7L4.9 6.6M15 13.7l-4.1 7.1"/>'],
-    ['auto', 'Automation', 'Pick the apps Atticus can control, all at once.', '#636366', '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>'],
+    ['auto', 'Automation', 'Pick the apps ATLAS can control, all at once.', '#636366', '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>'],
   ];
   const rows = (list, prefix, label = 'Allow') => list.map(([id, name, why, color, svg], i) => `
     <div class="row" id="${prefix}${id}" style="transition-delay:${.25 + i * .06}s">
@@ -665,8 +642,8 @@
   $('list').innerHTML = rows(P, 'p-');
   // Not everyone has a Claude plan: "Change provider" offers the same clients as Settings → Intelligence.
   $('p-claude').querySelector('.txt').insertAdjacentHTML('beforeend', '<button class="alt" id="client-alt">Change provider</button>');
-  const NAMES = { claude: 'Claude Plan', devin: 'Devin', pi: 'Pi', server: 'Custom Server' };
-  let want = null, provider = 'claude', saved = { apiBase: '', apiModel: '' }, pick = 'claude', probeTimer = 0;
+  const NAMES = { claude: 'Claude Plan', devin: 'Devin', pi: 'OpenAI API via Pi', server: 'Custom Server' };
+  let want = null, provider = 'pi', saved = { apiBase: '', apiModel: '' }, pick = 'pi', probeTimer = 0;
   const srvOK = () => /^https?:\/\/\S+$/.test($('srv-base').value.trim()) && !!$('srv-model').value.trim();
   const paintProv = () => {
     document.querySelectorAll('.opt').forEach(o => o.setAttribute('aria-checked', String(o.dataset.p === pick)));
@@ -750,7 +727,7 @@
     const core=[['claude','AI provider'],['mic','Microphone'],['speech','Speech Recognition'],['ax','Accessibility']],missing=core.filter(([id])=>!s[id]).map(([,name])=>name),voice=['claude','mic','speech'].every(id=>s[id]);
     $('done-title').textContent=!missing.length?'You’re all set':voice?'Voice is ready':'Setup isn’t finished yet';$('done-status').className=missing.length?'warn':'';
     $('done-sub').textContent=!missing.length?(toggleMode?'Press':'Hold')+' the shortcut anywhere and try one.':(voice?'Still needed for full Mac control: ':'Still needed: ')+missing.join(', ')+'. You can allow '+(missing.length===1?'it':'them')+' later in Setup & Permissions.';
-    $('finish').textContent=voice?'Start Using Atticus':'Finish Setup Later';
+    $('finish').textContent=voice?'Start Using ATLAS':'Finish Setup Later';
   };
   window.ob = {
     mode(toggle) {
@@ -768,7 +745,7 @@
       const k = cur === 'try' ? [...$('trykeys').children] : [];
       if (!k.length || k[0].classList.contains('yes')) return;
       k.forEach((c, i) => setTimeout(() => { c.classList.remove('lit', 'down'); c.classList.add('yes'); }, i * 70));
-      { $('hint').textContent = 'That’s it. Atticus is on it.'; $('hint').classList.add('yes'); }
+      { $('hint').textContent = 'That’s it. ATLAS is on it.'; $('hint').classList.add('yes'); }
       $('try-skip').hidden = true; $('try-next').hidden = false;
     },
     plan(c) {   // the AI client (Claude Code or Devin): installed, signed in, paid plan? The row says which, the button fixes it
@@ -783,7 +760,7 @@
     walk(id) {   // Enable All: the step it is on says what to do there; the button waits until the walk ends
       document.querySelectorAll('#agents .row').forEach(r => {
         const line = r.querySelector('.txt span'), now = r.id === 'a-' + id;
-        if (now && !r.classList.contains('now')) { line.dataset.why = line.textContent; line.textContent = OWN.some(o => 'a-' + o[0] === r.id) ? 'Turning it on…' : 'Turn on Atticus in System Settings.'; }
+        if (now && !r.classList.contains('now')) { line.dataset.why = line.textContent; line.textContent = OWN.some(o => 'a-' + o[0] === r.id) ? 'Turning it on…' : 'Turn on ATLAS in System Settings.'; }
         if (!now && line.dataset.why) { line.textContent = line.dataset.why; delete line.dataset.why; }
         r.classList.toggle('now', now);
       });
@@ -817,11 +794,12 @@
     rec(m) { if (recording) /^Add/.test(m) || !m ? dcKeys('', m || 'Type Shortcut') : dcKeys(m); },   // held modifiers, live
     taken(kind, own) {
       clearTimeout(dcWarn); $('dc-hint').className = 'warn';
-      $('dc-hint').textContent = own ? 'That’s already your Atticus shortcut. Kept your old one.' : 'Another app already uses that shortcut. Kept your old one.';
+      $('dc-hint').textContent = own ? 'That’s already your ATLAS shortcut. Kept your old one.' : 'Another app already uses that shortcut. Kept your old one.';
       dcWarn = setTimeout(() => { dcWarn = 0; paintPrefs(); }, 4000);
     },
     recorded(label) { recording = false; $('dc-field').classList.remove('rec'); prefs.dictateHotkeyLabel = label; paintPrefs(); },
     set(s) {
+      $('setup-pi-runtime').hidden = !s.devRuntimeSetup;
       last = s; s = { ...s, claude: planOK };
       let n = 0;
       for (const [id] of P) {

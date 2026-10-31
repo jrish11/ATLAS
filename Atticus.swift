@@ -17,6 +17,18 @@ import CoreAudio
 import AudioToolbox
 import NaturalLanguage
 
+// A development bundle must never read or write the regular Atticus profile.
+if Bundle.main.bundleIdentifier == "com.atticus.personal.dev" {
+    setenv("ATTICUS_DIR", NSHomeDirectory() + "/.config/atticus-personal-dev", 1)
+    setenv("ATTICUS_OWNER_PID", String(getpid()), 1)
+    setenv("ATTICUS_RUN_ID", (UUID().uuidString.replacingOccurrences(of:"-",with:"") + UUID().uuidString.replacingOccurrences(of:"-",with:"")).lowercased(), 1)
+    setenv("ATTICUS_POSTHOG_KEY", "", 1)
+    setenv("ATTICUS_DEV_NO_AUTO_RESUME", "1", 1)
+    setenv("ATTICUS_DEV_KEYCHAIN_HELPER", Bundle.main.bundlePath + "/Contents/MacOS/PersonalKeychain", 1)
+}
+
+let devTextOnly = Bundle.main.bundleIdentifier == "com.atticus.personal.dev" && CommandLine.arguments.dropFirst() == ["--text-only"]
+
 let dir = ProcessInfo.processInfo.environment["ATTICUS_RESOURCES_DIR"] ?? Bundle.main.resourcePath!   // build.sh copies atticus.py and ui/ in here
 
 // Text stays local; totals survive history deletion and never contain dictated words.
@@ -186,7 +198,7 @@ enum DictationData {
 enum Prefs {
     static let path = (ProcessInfo.processInfo.environment["ATTICUS_DIR"] ?? NSString(string: "~/.config/atticus").expandingTildeInPath) + "/settings.json"
     static let defaults: [String: Any] = ["hotkeyCode": 49, "hotkeyMods": controlKey | optionKey, "hotkeyLabel": "⌃⌥Space", "login": true, "paused": false, "corner": "top-left", "linger": "normal",
-        "soundStart": "Pop", "soundRelease": "Bottle", "soundDone": "Glass", "soundStop": "Tink", "volume": 0.16, "client": "claude", "model": "haiku", "instant": true,
+        "foregroundSavedDestinations": false, "foregroundAppControl": false, "soundStart": "Pop", "soundRelease": "Bottle", "soundDone": "Glass", "soundStop": "Tink", "volume": 0.16, "client": "claude", "model": "haiku", "instant": true,
         "wakeWord": false, "wakeWordName": "Atticus", "microphone": "automatic", "quietAudio": false, "quietLevel": 0.18, "agentModel": "sonnet", "agentUserTools": true, "fixSetup": false,
         "meetingStyle": "Direct", "meetingCustom": "", "meetingStyles": [
             ["name": "Direct", "text": "Lead with the answer in plain words. No hedging or filler."],
@@ -195,14 +207,27 @@ enum Prefs {
             ["name": "Friendly", "text": "Warm and conversational, like talking to a colleague. Simple words."]],
         "selection": true, "ahead": true, "aheadDelay": 0.7, "live": true, "screen": "auto", "openOn": "here", "workIn": "back", "miniScreen": true, "draw": true, "guideSteps": "auto", "pageJS": false,
         "speak": false, "showAnswers": "stream", "autoCopy": false, "hideWhenSharing": true, "menuIcon": true, "autoUpdate": true,
-        "learn": true, "safe": true, "pointer": false, "meeting": false, "meetingSave": true, "meetingAuto": "sure", "meetingNudge": false, "meetingDetect": true, "learnMe": true, "saveChats": true, "stats": true, "tips": true, "support": true, "comeBack": true, "askMe": true, "meetingSummary": true, "input": "voice", "talkMode": "hold", "speechModel": "speech", "whisperModel": "turbo", "whisperLanguage": "auto", "improve": false, "improveAsked": false, "draftInsert": "ask",
+        "learn": true, "safe": true, "pointer": false, "meeting": false, "meetingSave": true, "meetingAuto": "sure", "meetingNudge": false, "meetingDetect": true, "learnMe": true, "saveChats": true, "stats": false, "tips": true, "support": false, "comeBack": true, "askMe": true, "meetingSummary": true, "input": "voice", "talkMode": "hold", "speechModel": "speech", "whisperModel": "turbo", "whisperLanguage": "auto", "improve": false, "improveAsked": false, "draftInsert": "ask",
         "dictateHotkeyCode": -1, "dictateHotkeyMods": 0, "dictateHotkeyLabel": "", "dictateMode": "cleanup", "dictateHistory": true, "dictateLearn": true, "dictateWords": [], "dictateFixes": [String: String](), "boxW": 500, "boxH": 420]
     static let retiredKeys = ["quietAudio", "quietLevel", "autoCopy", "askMe", "corner", "linger", "soundStart", "soundRelease", "soundDone", "soundStop",
         "instant", "live", "ahead", "aheadDelay", "learn", "selection", "guideSteps", "workIn", "openOn", "miniScreen", "draftInsert",
         "meetingNudge", "meetingDetect", "meetingAuto", "fixSetup", "dictateLearn"]
+    static func personalFirstRunDefaults(_ values: inout [String:Any], fileExists: Bool) {
+        guard !fileExists else { return }
+        values["client"]="pi"; values["foregroundProvider"]="openai"; values["foregroundModel"]="gpt-6.1-terra"
+    }
     static var d: [String: Any] = {
         let saved = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path)))) as? [String: Any] ?? [:]
         var values = defaults.merging(saved) { $1 }
+        if Bundle.main.bundleIdentifier == "com.atticus.personal.dev" {
+            personalFirstRunDefaults(&values,fileExists:FileManager.default.fileExists(atPath:path))
+            values["legacyApiKeyPresent"] = !(saved["apiKey"] as? String ?? "").isEmpty
+            values["legacyCodexApiKeyPresent"] = !(saved["codexApiKey"] as? String ?? "").isEmpty
+            values["legacyForegroundOpenAIKeyPresent"] = !(saved["foregroundOpenAIKey"] as? String ?? "").isEmpty
+            values.removeValue(forKey: "apiKey"); values.removeValue(forKey: "codexApiKey"); values.removeValue(forKey: "foregroundOpenAIKey")
+            values["keychainMode"] = true
+            if values["codexAuthMode"] == nil { values["codexAuthMode"] = "existing" }
+        }
         if saved["support"] == nil, saved["tips"] as? Bool == false { values["support"] = false }   // tips turned off before the tip jar existed: keep its line off too (atticus.py reads the same default)
         if !["cheapest", "balanced", "capable"].contains(values["routing"] as? String ?? "") {
             values["routing"] = values["model"] as? String != "haiku" ? "capable" :
@@ -216,12 +241,69 @@ enum Prefs {
         return values   // persisted with the next preference write; legacy keys remain readable
     }()
     @discardableResult static func set(_ k: String, _ v: Any) -> Bool {   // false: not on disk, so the old value stays too
+        if Bundle.main.bundleIdentifier == "com.atticus.personal.dev" {
+            // Never rewrite a legacy plaintext key silently; the owner must explicitly migrate it.
+            if d["legacyApiKeyPresent"] as? Bool == true || d["legacyCodexApiKeyPresent"] as? Bool == true || d["legacyForegroundOpenAIKeyPresent"] as? Bool == true { return false }
+            if k == "apiKey" || k == "codexApiKey" {
+                guard let secret = v as? String else { return false }
+                let slot = k == "apiKey" ? "custom-server" : "openai-codex"
+                let ok = keychainAction(secret.isEmpty ? "delete" : "set", secret: secret, slot: slot)
+                if ok { d[k == "apiKey" ? "apiKeyConfigured" : "codexApiKeyConfigured"] = !secret.isEmpty; d.removeValue(forKey: k) }
+                return ok
+            }
+        }
         let old = d[k]; d[k] = v
         do {
             try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
             try JSONSerialization.data(withJSONObject: d, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: path), options: .atomic)
         } catch { d[k] = old; return false }
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        return true
+    }
+    static func keychainAction(_ action: String, secret: String = "", slot: String = "custom-server") -> Bool {
+        guard let resources = Bundle.main.resourcePath else { return false }
+        let process = Process(), input = Pipe(), output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [resources + "/keychain_store.py"]
+        process.standardInput = input; process.standardOutput = output; process.standardError = FileHandle.nullDevice
+        guard let data = try? JSONSerialization.data(withJSONObject: ["action":action, "secret":secret, "slot":slot, "confirmed": ["migrate", "discard-legacy", "migrate-both", "discard-both", "set-and-select", "set-foreground-and-select"].contains(action)]) else { return false }
+        do {
+            try process.run(); try input.fileHandleForWriting.write(contentsOf:data); try input.fileHandleForWriting.close()
+            let result = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+            let reply = (try? JSONSerialization.jsonObject(with:result)) as? [String:Any]
+            return process.terminationStatus == 0 && reply?["ok"] as? Bool == true
+        } catch { if process.isRunning { process.terminate() }; return false }
+    }
+    static func migrateLegacyProviderKey() -> Bool {
+        guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev", d["legacyApiKeyPresent"] as? Bool == true,
+              keychainAction("migrate") else { return false }
+        d["legacyApiKeyPresent"] = false; d["apiKeyConfigured"] = true; d.removeValue(forKey: "apiKey")
+        return true
+    }
+    static func discardLegacyProviderKey() -> Bool {
+        guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev", d["legacyApiKeyPresent"] as? Bool == true,
+              keychainAction("discard-legacy") else { return false }
+        d["legacyApiKeyPresent"] = false; d.removeValue(forKey: "apiKey")
+        return true
+    }
+    static func migrateLegacyCodexKey() -> Bool {
+        guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev", d["legacyCodexApiKeyPresent"] as? Bool == true,
+              keychainAction("migrate", slot: "openai-codex") else { return false }
+        d["legacyCodexApiKeyPresent"] = false; d["codexApiKeyConfigured"] = true; d.removeValue(forKey: "codexApiKey")
+        return true
+    }
+    static func discardLegacyCodexKey() -> Bool {
+        guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev", d["legacyCodexApiKeyPresent"] as? Bool == true,
+              keychainAction("discard-legacy", slot: "openai-codex") else { return false }
+        d["legacyCodexApiKeyPresent"] = false; d.removeValue(forKey: "codexApiKey")
+        return true
+    }
+    static func resolveBothLegacyKeys(migrate: Bool) -> Bool {
+        guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev", d["legacyApiKeyPresent"] as? Bool == true,
+              d["legacyCodexApiKeyPresent"] as? Bool == true, keychainAction(migrate ? "migrate-both" : "discard-both") else { return false }
+        d["legacyApiKeyPresent"] = false; d["legacyCodexApiKeyPresent"] = false
+        if migrate { d["apiKeyConfigured"] = true; d["codexApiKeyConfigured"] = true }
+        d.removeValue(forKey: "apiKey"); d.removeValue(forKey: "codexApiKey")
         return true
     }
     static func bool(_ k: String) -> Bool { d[k] as? Bool ?? false }
@@ -672,7 +754,158 @@ enum AudioRecovery {
         }
     }
 }
-AudioRecovery.start()
+// The explicit development-only entry point runs before audio recovery, agents,
+// onboarding, provider probes, hotkeys, and normal application initialization.
+enum SettingsOnlyPolicy {
+    static func perform(_ request: [String:Any], save: (String) -> Bool) -> Bool? {
+        guard request["do"] as? String == "set", request["k"] as? String == "foregroundOpenAIKey",
+              let secret = request["v"] as? String, !secret.isEmpty, secret.utf8.count <= 16000 else { return nil }
+        return save(secret)
+    }
+}
+
+final class SettingsOnlyWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate, NSWindowDelegate {
+    private var window: NSWindow?
+    private var web: WKWebView?
+
+    func open() {
+        let window = NSWindow(contentRect:NSRect(x:0,y:0,width:780,height:560), styleMask:[.titled,.closable,.miniaturizable,.resizable], backing:.buffered, defer:false)
+        window.title = "ATLAS Settings — Intelligence (Settings Only)"
+        window.isReleasedWhenClosed = false; window.delegate = self
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.userContentController.add(self, name:"st")
+        let view = WKWebView(frame:window.contentView!.bounds, configuration:configuration)
+        view.autoresizingMask = [.width,.height]; view.navigationDelegate = self
+        window.contentView?.addSubview(view); self.window = window; self.web = view
+        let path = dir + "/ui/settings.html"
+        guard let html = try? String(contentsOfFile:path, encoding:.utf8) else { fputs("Settings page unavailable.\n",stderr); exit(1) }
+        let csp = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;\">"
+        view.loadHTMLString(html.replacingOccurrences(of:"<head>", with:"<head>" + csp), baseURL:nil)
+        window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(navigationAction.navigationType == .linkActivated ? .cancel : .allow)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        var preferences = Prefs.defaults
+        preferences["keychainMode"] = true; preferences["codexAuthMode"] = "existing"
+        guard let data = try? JSONSerialization.data(withJSONObject:["prefs":preferences]), let json = String(data:data,encoding:.utf8) else { return }
+        let setup = """
+        st.load(\(json)); st.tab('brain');
+        document.querySelectorAll('nav button').forEach(x=>x.disabled=true);
+        document.querySelectorAll('#brain > *').forEach(x=>{if(!['H1','brainlede'].includes(x.id || x.tagName)) x.hidden=true;});
+        document.getElementById('brainlede').textContent='Foreground OpenAI via Pi is text-only and billed by OpenAI. It requires Pi; this screen does not install it or run a provider check. Keep normal Atticus Dev closed while saving. Codex login is separate and unchanged.';
+        const codexHeading=document.createElement('h3');codexHeading.textContent='Codex account login';
+        const codexGroup=document.createElement('div');codexGroup.className='group';
+        const codexRow=document.createElement('div');codexRow.className='row';
+        const codexText=document.createElement('div');codexText.className='t';codexText.innerHTML='<b>Existing account login</b><span>Separate from foreground OpenAI. This screen does not check or change Codex sign-in.</span>';
+        codexRow.append(codexText);codexGroup.append(codexRow);document.getElementById('brain').append(codexHeading,codexGroup);
+        const heading=document.createElement('h3');heading.textContent='Foreground OpenAI API';
+        const section=document.createElement('div');section.className='group';
+        const row=document.createElement('div');row.className='row';
+        const label=document.createElement('div');label.className='t';label.innerHTML='<b>OpenAI API key</b><span>Existing key is not checked. Default model: gpt-6.1-terra. Computer-control tools are unavailable in this route.</span>';
+        const key=document.createElement('input');key.className='field';key.type='password';key.placeholder='Enter OpenAI API key';key.setAttribute('aria-label','Foreground OpenAI API key');
+        key.setAttribute('autocomplete','off');key.setAttribute('autocorrect','off');key.setAttribute('autocapitalize','off');key.spellcheck=false;
+        const button=document.createElement('button');button.className='btn blue';button.textContent='Save and use OpenAI';
+        button.onclick=()=>{const value=key.value.trim();key.value='';if(value) window.webkit.messageHandlers.st.postMessage({do:'set',k:'foregroundOpenAIKey',v:value});};
+        key.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();button.click();}};row.append(label,key,button);section.append(row);document.getElementById('brain').append(heading,section);
+        """
+        webView.evaluateJavaScript(setup)
+    }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let request = message.body as? [String:Any] else { return }
+        let result = SettingsOnlyPolicy.perform(request) { Prefs.keychainAction("set-foreground-and-select", secret:$0, slot:"foreground-openai") }
+        guard let ok = result else { return }
+        let text = ok ? "Foreground OpenAI key saved and Pi selected. Codex login was not changed." : "Could not finish saving; Keychain may have changed. Check before retrying."
+        callJS(web, "st.notice", [["text":text]])
+    }
+    func windowWillClose(_ notification: Notification) {
+        web?.configuration.userContentController.removeScriptMessageHandler(forName:"st")
+        NSApp.terminate(nil)
+    }
+}
+
+// A fixed, one-shot foreground test using the real conversation page. No normal startup.
+final class ForegroundSmokeWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegate, NSWindowDelegate {
+    var window: NSWindow?; var web: WKWebView?; var sent = false
+    func open() {
+        let config = WKWebViewConfiguration(); config.websiteDataStore = .nonPersistent()
+        config.userContentController.add(self,name:"c"); config.userContentController.add(self,name:"h")
+        let w = NSWindow(contentRect:NSRect(x:0,y:0,width:600,height:420),styleMask:[.titled,.closable,.miniaturizable],backing:.buffered,defer:false)
+        w.title = "ATLAS — Foreground Test"; w.isReleasedWhenClosed = false; w.delegate = self
+        let v = WKWebView(frame:w.contentView!.bounds,configuration:config); v.autoresizingMask = [.width,.height]; v.navigationDelegate = self
+        w.contentView?.addSubview(v); window=w; web=v; loadPage(v,"ui.html"); w.center(); w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)
+    }
+    func webView(_ webView:WKWebView,didFinish navigation:WKNavigation!) {
+        webView.evaluateJavaScript("(()=>{let n=0;const t=setInterval(()=>{if(window.ui){clearInterval(t);window.ui.listen(true);window.ui.words('Reply with the single word READY.');window.ui.draft('Reply with the single word READY.');}else if(++n>100)clearInterval(t)},100)})()")
+    }
+    func userContentController(_ c:WKUserContentController,didReceive m:WKScriptMessage) {
+        guard m.name == "c", let b=m.body as? [String:Any], let text=b["send"] as? String, text == "Reply with the single word READY.", !sent else { return }
+        sent=true; web?.evaluateJavaScript("window.ui.listen(true);window.ui.words('Reply with the single word READY.');window.ui.think();")
+        let process=Process(), output=Pipe(); process.executableURL=URL(fileURLWithPath:"/usr/bin/python3"); process.arguments=[dir+"/foreground_smoke.py"]; process.standardOutput=output; process.standardError=FileHandle.nullDevice
+        do { try process.run() } catch { web?.evaluateJavaScript("window.ui.msg('Could not start the foreground test.')"); return }
+        DispatchQueue.global().async { [weak self] in
+            let data=output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+            let reply=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any]
+            let text=(process.terminationStatus == 0 && reply?["response"] as? String == "READY") ? "✓ READY" : "! Foreground test failed; check the test ledger."
+            let payload=(try? JSONSerialization.data(withJSONObject:[text])).flatMap{String(data:$0,encoding:.utf8)} ?? "[]"
+            DispatchQueue.main.async { self?.web?.evaluateJavaScript("window.ui.line.apply(window.ui,\(payload));") }
+        }
+    }
+    func windowWillClose(_ notification:Notification) { NSApp.terminate(nil) }
+}
+if CommandLine.arguments.dropFirst() == ["--foreground-smoke"] {
+    guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev" else { exit(2) }
+    let application=NSApplication.shared; application.setActivationPolicy(.accessory)
+    let smoke=ForegroundSmokeWindow(); smoke.open(); application.run(); withExtendedLifetime(smoke) {}; exit(0)
+}
+
+// Development-only exact app lookup/focus for the approved foreground bridge.
+if CommandLine.arguments.count >= 3 && CommandLine.arguments[1] == "--foreground-app-info" {
+    guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev" else { exit(2) }
+    let bundle=CommandLine.arguments[2]
+    guard bundle.range(of:#"^[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9][A-Za-z0-9-]*)+$"#,options:.regularExpression) != nil,
+          let url=NSWorkspace.shared.urlForApplication(withBundleIdentifier:bundle),
+          Bundle(url:url)?.bundleIdentifier == bundle else { print("{}"); exit(1) }
+    let path=url.resolvingSymlinksInPath().path, home=NSHomeDirectory()+"/Applications/"
+    guard path.hasSuffix(".app"), path.hasPrefix("/Applications/") || path.hasPrefix("/System/Applications/") || path.hasPrefix(home) else { print("{}"); exit(1) }
+    let running=NSRunningApplication.runningApplications(withBundleIdentifier:bundle).filter { !$0.isTerminated && $0.bundleURL?.resolvingSymlinksInPath().path == path }
+    var result:[String:Any]=["bundle_id":bundle,"path":path]
+    if running.count == 1, let start=running[0].launchDate { result["pid"]=Int(running[0].processIdentifier); result["started"]=String(start.timeIntervalSince1970) }
+    if CommandLine.arguments.count == 6, CommandLine.arguments[3] == "focus", let pid=Int32(CommandLine.arguments[4]),
+       let start=result["started"] as? String, start == CommandLine.arguments[5], result["pid"] as? Int == Int(pid), running.count == 1 {
+        let dispatched=running[0].activate(options:[.activateIgnoringOtherApps]); usleep(200_000)
+        result["focused"]=dispatched && NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+    }
+    if let data=try? JSONSerialization.data(withJSONObject:result), let text=String(data:data,encoding:.utf8) { print(text) }; exit(0)
+}
+
+if CommandLine.arguments.dropFirst() == ["--settings-only-selftest"] {
+    guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev" else { exit(2) }
+    var calls = 0
+    let save: (String) -> Bool = { _ in calls += 1; return true }
+    for request in [["do":"models"], ["do":"agents"], ["do":"localServers"], ["do":"set","k":"apiKey","v":"fixture"], ["do":"set","k":"codexApiKey","v":"fixture"], ["do":"set","k":"foregroundOpenAIKey","v":""]] {
+        precondition(SettingsOnlyPolicy.perform(request,save:save) == nil)
+    }
+    precondition(calls == 0)
+    precondition(SettingsOnlyPolicy.perform(["do":"set","k":"foregroundOpenAIKey","v":"fixture"],save:save) == true && calls == 1)
+    print("settings-only selftest ok"); exit(0)
+}
+if CommandLine.arguments.dropFirst() == ["--settings-only"] {
+    guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev" else { fputs("Settings-only mode requires the isolated development bundle.\n",stderr); exit(2) }
+    let application = NSApplication.shared
+    application.setActivationPolicy(.accessory)
+    let settingsOnlyWindow = SettingsOnlyWindow(); settingsOnlyWindow.open()
+    application.run()
+    withExtendedLifetime(settingsOnlyWindow) {}
+    exit(0)
+}
+if !devTextOnly && CommandLine.arguments.dropFirst() != ["--selftest"] && CommandLine.arguments.dropFirst() != ["--monotonic-selftest"] { AudioRecovery.start() }
+
 
 // What read-aloud says: an answer's words without its Markdown marks, its TeX math read loosely ("root 7 over 8").
 func spoken(_ answer: String) -> String {
@@ -842,13 +1075,8 @@ func py(_ args: [String], _ extra: [String: String] = [:]) -> Process {
     return p
 }
 
-func telemetry(_ args: [String]) {
-    guard Prefs.bool("stats") else { return }
-    let p = py(["--telemetry"] + args)
-    p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
-    try? p.run()   // its curl child outlives this helper; never wait on an ask
-}
-func openTipJar(_ from: String) { NSWorkspace.shared.open(kofi); telemetry(["support", from]) }   // PostHog counts clicks by place
+func telemetry(_ args: [String]) { } // Personal ATLAS sends no upstream analytics.
+func openTipJar(_ from: String) { } // Donation solicitation is disabled in this fork.
 
 func detectLocalServers(_ done: @escaping ([[String: Any]]) -> Void) {
     DispatchQueue.global().async {
@@ -1948,7 +2176,7 @@ final class MiniScreen: NSObject, SCStreamOutput, SCStreamDelegate {
         guard (try? p.run()) != nil else { p.terminationHandler = nil; return }
         DispatchQueue.global().asyncAfter(deadline: .now() + 2, execute: timeout)
     }
-    static var workInFront: Bool { Prefs.str("workIn") == "front" || ProcessInfo.processInfo.environment["ATTICUS_FOCUS_REQUESTED"] == "1" }
+    static var workInFront: Bool { ProcessInfo.processInfo.environment["ATTICUS_AX_ONLY"] != "1" && (Prefs.str("workIn") == "front" || ProcessInfo.processInfo.environment["ATTICUS_FOCUS_REQUESTED"] == "1") }
     static func work(_ app: NSRunningApplication) {
         guard workInFront, NSWorkspace.shared.frontmostApplication != app else { return }
         DistributedNotificationCenter.default().postNotificationName(.init("atticus.raise"), object: "user", deliverImmediately: true)
@@ -2316,12 +2544,14 @@ final class App: NSObject, WKScriptMessageHandler {
         }
     }
     var text = "", answer = "", busy = false, speechFailed = false, gen = 0
+    var foregroundHistory: [[String:String]] = []; var foregroundPending: String?
     var agentCard = ""   // the hand-off or done card on screen: Esc picks its quiet choice
     var replyAgent = ""   // the agent whose done card was up when this ask began: talking clears the card, so it is kept here
     var showAgent = ""   // the task this ask showed (--agent-show): its work comes up when the ask ends
     var defaultKeys: [EventHotKeyRef] = []
     var defaultWanted = false, defaultObservers: [NSObjectProtocol] = []
     var proc: Process?, escRef: EventHotKeyRef?, warm: (p: Process, input: FileHandle, commit: String)?
+    var approvalInput: FileHandle?
     var commit = "", listenID = 0
     var consumed = 0, fastBusy = false, did: [String] = [], pause: DispatchWorkItem?   // "Act while I'm talking": commands done mid-sentence
     var fastProc: Process?, consumedText = "", liveRevised = false, targetScreen = ""
@@ -2336,6 +2566,7 @@ final class App: NSObject, WKScriptMessageHandler {
     var dictatePressed = Date.distantPast, dictateTap: DispatchWorkItem?   // dictateTap: a quick tap waiting to see if a second one locks
     var dictateSelection: TextSelection?, dictationTargetApp: NSRunningApplication?, dictateProcess: Process?, dictateInput: FileHandle?, dictateOutput: FileHandle?, dictateID = 0, dictateBefore = ""
     var dictateSelectionRetried = false
+    var approvalCardID = "", approvalCardPath = ""
     var askFile = ""   // safe mode: where the Allow / Don't Allow answer goes (atticus.py's gate waits on it)
     var askNeed: [String:Any] = [:]
     var agentMoveFile = "" { didSet { moveKey() } }   // set while atticus.py watches it: the running ask can move to an agent
@@ -2403,8 +2634,17 @@ final class App: NSObject, WKScriptMessageHandler {
     var hints: [String] {
         let config = (Prefs.path as NSString).deletingLastPathComponent
         let shortcuts = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: config + "/skills.json")))) as? [String: Any] ?? [:]
+        // Only owner-confirmed labels and aliases, never saved URLs or paths, go into local speech context.
+        let personal = ["destinations.json", "projects.json"].flatMap { filename -> [String] in
+            let url = URL(fileURLWithPath: config + "/" + filename)
+            guard let data = try? Data(contentsOf: url),
+                  let rows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return [] }
+            return rows.filter { $0["confirmed"] as? Bool == true }.flatMap { row in
+                ([row["label"] as? String].compactMap { $0 } + (row["aliases"] as? [String] ?? [])).prefix(12)
+            }.prefix(60).map { String($0.prefix(100)) }
+        }
         var seen = Set<String>()
-        return Array((DictationData.words + ["Atticus", profileName(config + "/me.json")] + shortcuts.keys.sorted() +
+        return Array((DictationData.words + ["Atticus", "Schoology", "Lovable", "Obsidian", "Codex", profileName(config + "/me.json")] + personal + shortcuts.keys.sorted() +
         [NSHomeDirectory() + "/Applications", "/Applications", "/System/Applications", "/System/Applications/Utilities"].flatMap {
             ((try? FileManager.default.contentsOfDirectory(atPath: $0)) ?? []).filter { $0.hasSuffix(".app") }.map { String($0.dropLast(4)) }
         }).filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(DictationData.words.count + 100))
@@ -2592,10 +2832,10 @@ final class App: NSObject, WKScriptMessageHandler {
         applySharing(panel)
         loadPage(web, "ui.html")
         // Click anywhere else closes the box once the answer is up; on the box: ✕ closes, elsewhere copies the answer.
-        NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+        if !devTextOnly { NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             guard let self, !handsFree, panel.isVisible, !busy, !engine.isRunning, !stuck, !drawing.active, !drawing.hasInput else { return }
             close(clear: false)
-        }
+        } }
         var grab: (mouse: NSPoint, origin: NSPoint)?, moved = false
         var sizing: (mouse: NSPoint, frame: NSRect, e: (l: Bool, r: Bool, t: Bool, b: Bool))?   // dragging an edge or corner
         NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] e in
@@ -2650,14 +2890,14 @@ final class App: NSObject, WKScriptMessageHandler {
                let u = userApp, !u.isTerminated, u != a { MiniScreen.activate(u.processIdentifier); if hiddenAtStart.contains(a.processIdentifier) { a.hide() }; return }
             if Self.isUserApp(now:now, allowUntil:allowUntil, userSwitch:userSwitch, allowUserApp:allowUserApp || workInFront) { mine = a.localizedName ?? ""; userApp = a }
         }
-        NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] e in
+        if !devTextOnly { NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] e in
             if e.type != .keyDown || e.modifierFlags.contains(.command) { self?.userSwitch = Date() }   // a click or ⌘-Tab: the user is choosing
-        }
+        } }
         DistributedNotificationCenter.default().addObserver(forName: .init("atticus.raise"), object: nil, queue: .main) { [weak self] n in
             self?.allowUntil = Date().addingTimeInterval(3)   // hands raise an app for a mouse click, then put the user's app back
             self?.allowUserApp = n.object as? String == "user"   // a voice focus request changes the user's app; a temporary hands raise does not
         }
-        SFSpeechRecognizer.requestAuthorization { _ in }
+        if !devTextOnly { SFSpeechRecognizer.requestAuthorization { _ in } }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             let frames = NSScreen.screens.map(\.frame), moved = frames != screenFrames   // Dock/menu-bar changes also post this; only real display changes stale a drawing
@@ -2673,8 +2913,7 @@ final class App: NSObject, WKScriptMessageHandler {
                 hide(after: 3)
             } else if hadDrawing { js("notice", "The screen changed. Ask again to continue.") }
         }
-        prepareSpeech()
-        AVCaptureDevice.requestAccess(for: .audio) { _ in }
+        if !devTextOnly { prepareSpeech(); AVCaptureDevice.requestAccess(for: .audio) { _ in } }
     }
 
     // The page reports its height; grow the box down from the top-left corner. "c": the typing box.
@@ -2732,6 +2971,7 @@ final class App: NSObject, WKScriptMessageHandler {
             if b["kofi"] != nil { openTipJar("overlay") }
             if b["replace"] != nil, !busy { applyReplacement() }
             if b["retry"] != nil, !busy, !engine.isRunning { typed(text, keep: true) }
+            if b["newConversation"] != nil, !busy { foregroundHistory = []; foregroundPending = nil; js("reset"); js("draft", ""); return }
             if let t = b["send"] as? String { typed(t, keep: true) }
             if b["point"] != nil { drawing.inputMode ? finishPointing() : startPointing() }
             if b["pointClear"] != nil { if drawing.hasInput { drawing.clearInput() } else { clearPointContext() } }   // a drawn mark, or a selected one of Atticus's
@@ -2760,7 +3000,7 @@ final class App: NSObject, WKScriptMessageHandler {
             if let k = b["off"] as? String, ["tips", "support"].contains(k) { Atticus.settings.apply(k, false); Atticus.settings.push() }   // a tip's own "Turn off"; never safe mode
             if let v = b["improve"] as? Bool { Atticus.settings.apply("improve", v); Atticus.settings.push() }
             if let item = b["memory"] as? [String: Any] { Atticus.settings.reveal(item) }   // a receipt's item: Settings → Memory, at that item
-            if let ok = b["allow"] as? Bool, !askFile.isEmpty { allow(ok) }
+            if let ok = b["allow"] as? Bool, !askFile.isEmpty, approvalCardMatches(approvalCardID, b["approvalToken"] as? String), approvalCardPath == askFile { allow(ok) }
             return
         }
         let size = ((m.body as? [NSNumber]) ?? [m.body as? NSNumber].compactMap { $0 }).map { CGFloat($0.doubleValue) }
@@ -2885,8 +3125,17 @@ final class App: NSObject, WKScriptMessageHandler {
         f.size.width = w; frame(f)
     }
 
-    func allow(_ ok: Bool) {
+    func allow(_ ok: Bool, autoDeadline: TimeInterval? = nil, autoRevision: String? = nil) {
+        approvalCardID = ""; approvalCardPath = ""
         let path = askFile, need = askNeed["need"] as? String ?? "", app = askNeed["app"] as? String ?? ""
+        if path.hasPrefix("channel:") {
+            let parts=path.components(separatedBy:":")
+            guard parts.count == 3, parts[1].range(of:#"^[0-9a-f]{64}$"#,options:.regularExpression) != nil, parts[2].range(of:#"^[0-9a-f]{64}$"#,options:.regularExpression) != nil, let input=approvalInput else { askFile=""; return }
+            var response:[String:Any]=["id":parts[1],"revision":parts[2],"allow":ok]
+            if let autoDeadline, let autoRevision { response["expires"]=autoDeadline;response["targetRevision"]=autoRevision }
+            guard let data=try? JSONSerialization.data(withJSONObject:response) else { askFile="";return }
+            var line=data;line.append(10);try? input.write(contentsOf:line);askFile="";return
+        }
         if ok && need == "page-js" { Prefs.set("pageJS", true) }
         guard ok, !need.isEmpty, need != "page-js" else {
             try? (ok ? "y" : "n").write(toFile:path, atomically:true, encoding:.utf8); askFile = ""; return
@@ -2941,7 +3190,7 @@ final class App: NSObject, WKScriptMessageHandler {
         cancelFast()
         aheadItem?.cancel(); dropAhead()
         if picking { js("pickHear") }
-        proc?.terminate(); proc = nil; askFile = ""; agentMoveFile = ""; replacement = nil; retryOffer = false
+        proc?.terminate(); proc = nil; try? approvalInput?.close(); approvalInput=nil; approvalCardID=""; approvalCardPath=""; askFile = ""; agentMoveFile = ""; replacement = nil; retryOffer = false
         if let old = offerText { text = old }; offerText = nil
         let an = analyzer, next = nextAnalyzer
         nextFeed = nil; nextAnalyzer = nil; nextReading = nil; nextSpeechInputID = nil; nextSpeechSegment = 0
@@ -2980,7 +3229,7 @@ final class App: NSObject, WKScriptMessageHandler {
         let pending = clear || replacement == nil ? nil : (replacement, selection)
         shush(); hush(); drawing.clear(); unpoint()   // gone means quiet: no mic, no voice, no answer, no drawing or ring
         if let pending { replacement = pending.0; selection = pending.1 }   // a hidden Insert/Replace keeps its validated target
-        if clear { try? FileManager.default.removeItem(atPath: recent); lastDone = .distantPast }
+        if clear { foregroundHistory = []; foregroundPending = nil; try? FileManager.default.removeItem(atPath: recent); lastDone = .distantPast }
         gen += 1
         let g = gen
         NSAnimationContext.runAnimationGroup({ $0.duration = 0.2; panel.animator().alphaValue = 0 },
@@ -3824,6 +4073,7 @@ final class App: NSObject, WKScriptMessageHandler {
         if !panel.isKeyWindow { selection = TextSelection.capture() }
         if !Prefs.bool("selection") { selection = nil }
         if !drawing.active { targetScreen = currentRequestScreen(panel) }   // follow-ups stay with the guide, not its relocated box
+        if !heard && Prefs.str("client") == "pi" && Prefs.str("foregroundProvider") == "openai" { foregroundPending = t } else { foregroundPending = nil }
         text = t; replacement = nil
         if !heard { replyAgent = agentCard }   // a spoken drawing reply keeps the done card captured at key-down
         if !heard { js("listen", keep); if let s = selection { js("selected", s.text) } }; show(); js("words", t); run(t)
@@ -3906,7 +4156,10 @@ final class App: NSObject, WKScriptMessageHandler {
                         guard (3...6).contains(p.count) else { continue }
                         self.retryOffer = p.count >= 5 && p[4] == "retry"
                         self.askNeed = p.count == 6 && !self.retryOffer ? (try? JSONSerialization.jsonObject(with:Data(p[5].utf8))) as? [String:Any] ?? [:] : [:]
-                        self.askFile = p[2]; self.show(); self.js("ask", [p[0], p[1], self.retryOffer ? "retry" : "", self.retryOffer && p.count == 6 ? p[5] : ""]); continue
+                        self.askFile = p[2]; self.approvalCardPath = p[2]; self.approvalCardID = UUID().uuidString
+                        let pieces=p[2].components(separatedBy:":")
+                        if NativeAutonomyScope.featureEnabled, pieces.count == 3, pieces[0] == "channel", bar.autonomy.permits(question:p[0],command:p[1],requestID:pieces[1],now:{ steadyTime() }), let deadline=bar.autonomy.deadline, let revision=bar.autonomy.revision(question:p[0],command:p[1]), bar.autonomyAudit("auto_approved",command:p[1]) { self.allow(true, autoDeadline:deadline, autoRevision:revision); continue }
+                        self.show(); self.js("ask", [p[0], p[1], self.retryOffer ? "retry" : "", self.retryOffer && p.count == 6 ? p[5] : "", self.approvalCardID]); continue
                     }
                     if line.hasPrefix("⚙ ") {   // "⚙ <key> <true|false>": the AI flips one of Atticus's switches; never pause, and Safe mode only on
                         let p = line.split(separator: " ").map(String.init)
@@ -3915,7 +4168,7 @@ final class App: NSObject, WKScriptMessageHandler {
                         continue
                     }
                     if line.hasPrefix("◇ "), let j = try? JSONSerialization.jsonObject(with: Data(line.dropFirst(2).utf8)) as? [String: Any] {   // "which one?": the choices card
-                        self.retryOffer = true; self.askNeed = ["pick": true]; self.askFile = j["a"] as? String ?? ""; self.show(); self.js("pick", j); continue
+                        self.retryOffer = true; self.askNeed = ["pick": true]; self.approvalCardID=""; self.approvalCardPath=""; self.askFile = j["a"] as? String ?? ""; self.show(); self.js("pick", j); continue
                     }
                     if line.hasPrefix("▤ ") { self.showAgent = String(line.dropFirst(2)); continue }
                     if line.hasPrefix("⇢ "), let value = try? JSONSerialization.jsonObject(with:Data(line.dropFirst(2).utf8)) as? [String:Any] {   // movable: ⌃⌥↩ moves it / {}: no longer movable
@@ -3940,10 +4193,17 @@ final class App: NSObject, WKScriptMessageHandler {
                     if line.hasPrefix("✓") {
                         let result = self.replacement.flatMap { $0.isEmpty ? nil : $0 } ?? line.dropFirst(2).replacingOccurrences(of: "\u{2028}", with: "\n")
                         let finish = self.drawing.request?.steps.count == 1 ? "Done. It’s on your screen." : "Done. Steps are on screen."
+                        if let q = self.foregroundPending {
+                            self.foregroundPending = nil
+                            if q.utf8.count + result.utf8.count <= 2000 {
+                                self.foregroundHistory.append(["q":q, "a":result]); self.foregroundHistory = Array(self.foregroundHistory.suffix(4))
+                                while self.foregroundHistory.reduce(0, { $0 + ($1["q"]?.utf8.count ?? 0) + ($1["a"]?.utf8.count ?? 0) }) > 4096 { self.foregroundHistory.removeFirst() }
+                            }
+                        }
                         self.mini.finish(); self.answer = "✓ " + (guided ? finish : result); self.js("line", self.answer)
                         self.deliver(guided ? finish : result, aloud: !guided); continue   // after the line: finding the read-aloud voice must not delay the answer; a guide's steps speak for themselves
                     }
-                    if line.hasPrefix("! ") { self.js("msg", String(line.dropFirst(2))) }
+                    if line.hasPrefix("! ") { self.foregroundPending = nil; self.js("msg", String(line.dropFirst(2))) }
                     else { self.js("line", line) }
                 }
             }
@@ -3955,6 +4215,7 @@ final class App: NSObject, WKScriptMessageHandler {
             DispatchQueue.main.async {
                 try? FileManager.default.removeItem(atPath: commit)
                 guard let self, self.proc === p else { return }   // a cancelled run ending late must not touch the next one
+                try? self.approvalInput?.close(); self.approvalInput=nil
                 if !self.ahead.isEmpty { self.proc = nil; self.ahead = ""; self.busy = !self.engine.isRunning; return }
                 // Exit 70 means Python already reported the crash; a signal is always an unreported process death.
                 if p.terminationReason == .uncaughtSignal || (p.terminationStatus != 0 && p.terminationStatus != 70) { telemetry(["error", "worker_exit", "python", String(p.terminationStatus)]) }
@@ -3973,7 +4234,31 @@ final class App: NSObject, WKScriptMessageHandler {
 
     func unwarm() { warm?.p.terminate(); warm = nil }
 
-    func run(_ t: String, speculative: Bool = false, remaining: String? = nil) {
+    func run(_ t: String, speculative: Bool = false, remaining: String? = nil, tryPersonal: Bool = true) {
+        // Only confirmed whole requests can reach the resident personal route.
+        let words = transcriptKey(t).replacingOccurrences(of: #"^(?:(?:hey|ok|okay|atticus|please|also|and|now|then|can you|could you|would you|will you)[,\s]+)+"#, with: "", options: .regularExpression)
+        let openIntent = words.range(of: #"^(?:open(?: up)?|launch|pull up|bring up|focus on|switch to|go to)\s+"#, options: .regularExpression) != nil
+        if tryPersonal && !speculative && remaining == nil && openIntent && Prefs.bool("instant") && !Prefs.bool("paused") &&
+            pointContext == nil && !drawing.hasInput && selection == nil && replyAgent.isEmpty {
+            let generation = stops, wasBusy = busy
+            busy = true; js("think")
+            if agentsUI.personalOpen(t, completion: { [weak self] event in
+                guard let self, generation == stops, busy else { return }
+                guard let event else {
+                    unwarm(); busy = false; pinned = true
+                    js("msg", "Couldn’t confirm the browser action. Check Safari before trying again."); show(); return
+                }
+                guard event["matched"] as? Bool == true else { busy = wasBusy; run(t, tryPersonal:false); return }
+                unwarm(); busy = false
+                guard let reply = event["reply"] as? String, !reply.isEmpty else {
+                    pinned = true; js("msg", "Couldn’t confirm the browser action. Check Safari before trying again."); show(); return
+                }
+                let message = reply + ((event["recorded"] as? Bool == false) ? " I couldn’t save the activity record." : "")
+                answer = "✓ " + message; followUp = handsFree
+                js("line", answer); deliver(message); lastDone = Date(); cue("soundDone"); followUpSoon(); hide(after:linger(5))
+            }) { return }
+            busy = wasBusy
+        }
         let point = pointContext, drawn = drawing.summary
         pointContext = nil; unpoint(false)
         if point != nil { js("point", false) }   // the mark went with this ask (its picture is in the bubble): the chip must not wait for the next one
@@ -3995,12 +4280,13 @@ final class App: NSObject, WKScriptMessageHandler {
         }
         do {
             var request: [String:Any] = ["front":mine, "task":t]
+            if foregroundPending != nil && !foregroundHistory.isEmpty { request["history"] = foregroundHistory }
             if let remaining { request["remaining"] = remaining; request["done"] = did }
             if let point { request["point"] = point }
             if let drawn { request["drawing"] = drawn }
             if !replyAgent.isEmpty { request["agentCard"] = replyAgent }
             var data = try JSONSerialization.data(withJSONObject:request); data.append(10)
-            try w.input.write(contentsOf:data); try w.input.close()
+            try w.input.write(contentsOf:data); approvalInput=w.input
         } catch {
             if let path = point?["image"] as? String { try? FileManager.default.removeItem(atPath:path) }
             cancel(); js("msg", "The request worker stopped. Please try again.")
@@ -4039,6 +4325,7 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
     var moveFrom: [String:[Double]] = [:], flying: [(String,[Double]?)] = []   // hand-offs (by handoffId) still waiting for their offer; accepted ones waiting for the rest of their ask
     var ping: String?, expandOnReady = "", nearSince: Date?   // ping: a done card the user asked for in the box
     var lastBox: NSDictionary?
+    var personalPending: [String: ([String:Any]?) -> Void] = [:]
     var hovered = "", miniSurface = "", selected = "", drag: (mouse:NSPoint, frame:NSRect)?
     var dismissed = Set(Prefs.d["agentDismissed"] as? [String] ?? []) {   // chips the user ×'d off the screen; their agents keep working in the badge and Agent view
         didSet { if dismissed != oldValue { Prefs.set("agentDismissed", dismissed.filter { rows[$0].map { Self.live.contains($0["status"] as? String ?? "") || Self.lingers($0) } ?? false }.sorted()) } }   // kept over a restart while it could still show
@@ -4046,14 +4333,16 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
     var monitor: Any?, keyMonitor: Any?, timer: Timer?, moves: [Any] = [], localKeys: Any?
     override init() {
         super.init()
-        DispatchQueue.main.async { [weak self] in self?.start() }   // restore accepted work even if the user never opens Agents
+        if Bundle.main.bundleIdentifier != "com.atticus.personal.dev" { DispatchQueue.main.async { [weak self] in self?.start() } }   // development jobs resume only after explicit user action
         mini.forcePreview = true
+        if !devTextOnly {
         keyMonitor = NSEvent.addGlobalMonitorForEvents(matching:.keyDown) { [weak self] e in
             if ![kVK_Return,kVK_ANSI_KeypadEnter].contains(Int(e.keyCode)), !app.defaultKeys.isEmpty { app.defaultKey(false) }   // typing in another app: its Return is the user's again
             if Int(e.keyCode) == kVK_Escape { self?.js("shelf","blur") }   // the shelf never becomes key, so its page never sees Esc
         }
+        }
         localKeys = NSEvent.addLocalMonitorForEvents(matching:.keyDown) { [weak self] e in if Int(e.keyCode) == kVK_Escape { self?.js("shelf","blur") }; return e }
-        timer = Timer.scheduledTimer(withTimeInterval:0.1, repeats:true) { [weak self] _ in self?.tick() }
+        if !devTextOnly { timer = Timer.scheduledTimer(withTimeInterval:0.1, repeats:true) { [weak self] _ in self?.tick() } }
         NotificationCenter.default.addObserver(forName:NSApplication.willTerminateNotification, object:nil, queue:.main) { [weak self] _ in
             self?.process?.terminationHandler = nil; self?.process?.terminate(); self?.mini.reset()
         }
@@ -4088,6 +4377,17 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
         do { try input?.write(contentsOf:json + Data([10])) }
         catch { process?.terminate() }
     }
+    // Reuse the existing supervisor's private stdin; no socket, login item or extra daemon.
+    func personalOpen(_ text: String, completion: @escaping ([String:Any]?) -> Void) -> Bool {
+        guard let process, process.isRunning, let input, text.count <= 512 else { return false }
+        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        guard let data = try? JSONSerialization.data(withJSONObject: ["action":"personal-open", "id":id, "text":text, "confirmed":true]) else { return false }
+        personalPending[id] = completion
+        do { try input.write(contentsOf:data + Data([10])) }
+        catch { personalPending.removeValue(forKey:id)?(nil); process.terminate(); return true }
+        DispatchQueue.main.asyncAfter(deadline:.now() + 12) { [weak self] in self?.personalPending.removeValue(forKey:id)?(nil) }
+        return true
+    }
     func start() {
         guard process == nil else { return }
         let p = py(["--agents"]), out = Pipe(), inp = Pipe(); p.standardOutput = out; p.standardInput = inp; p.standardError = FileHandle.nullDevice
@@ -4110,6 +4410,7 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
                 if p.terminationReason == .uncaughtSignal || (p.terminationStatus != 0 && p.terminationStatus != 70) { telemetry(["error", "worker_exit", "python", String(p.terminationStatus)]) }
                 // A crash drops its half-read line and box state; a fresh supervisor relists its saved rows.
                 process = nil; input = nil; buffer = Data(); lastBox = nil; restarts += 1
+                let pending = Array(personalPending.values); personalPending.removeAll(); pending.forEach { $0(nil) }
                 DispatchQueue.main.asyncAfter(deadline:.now() + min(60, pow(2, Double(restarts)))) { [weak self] in self?.start() }
             }
         }
@@ -4155,6 +4456,9 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
     }
     func receive(_ event:[String:Any]) {
         let kind = event["event"] as? String ?? ""
+        if kind == "personal-result", let id = event["id"] as? String {
+            personalPending.removeValue(forKey:id)?(event); return
+        }
         if kind == "list", let list = event["agents"] as? [[String:Any]] {
             restarts = 0
             rows = Dictionary(uniqueKeysWithValues:list.compactMap { row in (row["id"] as? String).map { ($0,row) } })
@@ -4181,7 +4485,19 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
                 if hovered == id, let target = row["target"] as? [String:Any] { preview(id, surface:miniSurface, target:target) }
             } else if kind == "offer" {
                 offers[id] = event["followup"] as? Bool == true ? row : [:]
-                accept(id, from:moveFrom.removeValue(forKey:row["handoffId"] as? String ?? ""))
+                if row["provider"] as? String == "codex" && (row["folder"] as? String ?? "").isEmpty {
+                    // Scope ambiguous or unknown requests only through an explicit folder choice.
+                    let picker = NSOpenPanel(); picker.canChooseDirectories = true; picker.canChooseFiles = false
+                    picker.allowsMultipleSelection = false; picker.message = "Choose the project folder for this Codex task."
+                    picker.begin { [weak self] result in
+                        guard let self, self.rows[id]?["status"] as? String == "offered" else { return }
+                        guard result == .OK, let folder = picker.url?.path else { self.send(["action":"cancel", "id":id]); return }
+                        self.send(["action":"select-project", "id":id, "folder":folder, "confirmed":true])
+                        self.accept(id, from:self.moveFrom.removeValue(forKey:row["handoffId"] as? String ?? ""))
+                    }
+                } else {
+                    accept(id, from:moveFrom.removeValue(forKey:row["handoffId"] as? String ?? ""))
+                }
             } else if kind == "done" {
                 if row["destination"] as? String == "meeting" { meeting.acceptAgent(row) }
                 if quiet || row["routine"] != nil { notify(row); rows[id]?["notified"] = true; send(["action":"notified","id":id]) }
@@ -4513,6 +4829,18 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
         case "open": open(id,target:body["target"] as? String); if rows[id]?["status"] as? String == "done" { send(["action":"seen","id":id]) }
         case "reveal": open(id,reveal:true)
         case "connect": NSWorkspace.shared.open(URL(string:"https://claude.ai/settings/connectors")!)
+        case "review-cancel":
+            guard surface == "view", rows[id]?["cancelReviewRequired"] as? Bool == true else { return }
+            let alert = NSAlert(); alert.messageText = "Have you reviewed the cancellation outcome?"
+            alert.informativeText = "Inspect the project and any partial changes before allowing this Codex task to continue."
+            alert.addButton(withTitle: "I reviewed it"); alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn { send(["action":"review-cancel", "id":id, "confirmed":true]) }
+        case "verify-result":
+            guard surface == "view", rows[id]?["status"] as? String == "done" else { return }
+            let alert = NSAlert(); alert.messageText = "Did you verify this result?"
+            alert.informativeText = "Confirm only after checking the work. If activity logging is enabled, Atticus will add its title to your selected vault."
+            alert.addButton(withTitle: "I verified it"); alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn { send(["action":"verify-result", "id":id, "confirmed":true]) }
         case "answer":
             send(body)
             if body["answer"] as? String == "y", let q = rows[id]?["question"] as? [String:Any], q["need"] != nil, q["_a"] as? String == body["question"] as? String { allow(id,q) }
@@ -4526,6 +4854,7 @@ final class RoutineWake {
     let path = (Prefs.path as NSString).deletingLastPathComponent + "/routine-queue.jsonl"
     var source: DispatchSourceFileSystemObject?, draining = false, pending = false
     init() {
+        if Bundle.main.bundleIdentifier == "com.atticus.personal.dev" { return } // No scheduled work without explicit owner action.
         try? FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath:path) { FileManager.default.createFile(atPath:path, contents:Data(), attributes:[.posixPermissions:0o600]) }
         let fd = open(path, O_EVTONLY)
@@ -4552,6 +4881,20 @@ final class RoutineWake {
             }
         }
     }
+}
+
+// Explicit owner action only. Opening the bundled command does not itself download anything.
+func openPiRuntimeSetup() {
+    guard Bundle.main.bundleIdentifier == "com.atticus.personal.dev", let resource = Bundle.main.resourceURL else { return }
+    let command=resource.appendingPathComponent("Setup/Setup.command")
+    guard FileManager.default.isExecutableFile(atPath:command.path) else {
+        let alert=NSAlert();alert.messageText="ATLAS runtime setup is unavailable";alert.informativeText="This app copy does not contain the setup command. Use the limited-test package and its setup instructions.";alert.runModal();return
+    }
+    let alert=NSAlert();alert.messageText="Open ATLAS runtime setup?"
+    alert.informativeText="Terminal will explain the per-device setup and ask before downloading pinned Pi packages. No keys or login sessions are copied."
+    alert.addButton(withTitle:"Open Setup");alert.addButton(withTitle:"Cancel")
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
+    if !NSWorkspace.shared.open(command) { let failure=NSAlert();failure.messageText="Could not open runtime setup";failure.runModal() }
 }
 
 // First-run window (ui/onboarding.html): welcome, then each macOS permission with an Allow button, then how to use it.
@@ -4614,6 +4957,7 @@ final class Onboarding: NSObject, WKScriptMessageHandler, NSWindowDelegate {
     static func perms() -> [String: Bool] {
         ["mic": AVCaptureDevice.authorizationStatus(for: .audio) == .authorized, "speech": SFSpeechRecognizer.authorizationStatus() == .authorized,
          "ax": AXIsProcessTrusted(), "screen": CGPreflightScreenCaptureAccess(), "auto": Apps.statuses(["com.apple.systemevents"])["com.apple.systemevents"] == "allowed",
+         "devRuntimeSetup": Bundle.main.bundleIdentifier == "com.atticus.personal.dev",
          "calendar": EKEventStore.authorizationStatus(for: .event) == .fullAccess, "tools": Prefs.bool("agentUserTools"),
          "chrome": Prefs.bool("pageJS") || NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") == nil]   // no Chrome: nothing to turn on   // a live check fails while System Events is quit, so fall back to what was granted
     }
@@ -4771,6 +5115,7 @@ final class Onboarding: NSObject, WKScriptMessageHandler, NSWindowDelegate {
         if b["do"] == "done" { return finish() }
         if b["do"] == "kofi" { openTipJar("setup"); return }
         if b["do"] == "feedback" { Atticus.settings.open(tab: "feedback"); return }
+        if b["do"] == "setupPiRuntime" { openPiRuntimeSetup(); return }
         if b["do"] == "enableAll" { return enableAll(connected: b["connected"] == "true") }
         if b["do"] == "provider", let c = b["client"], ["claude", "devin", "pi"].contains(c) {   // the plan row's Change provider sheet
             Atticus.settings.apply("client", c)
@@ -4874,16 +5219,16 @@ final class PermissionHelp: NSObject, NSWindowDelegate {
         let w = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 110),
                         styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
         applySharing(w)
-        w.title = "Allow Atticus"; w.level = .floating; w.hidesOnDeactivate = false
+        w.title = "Allow ATLAS"; w.level = .floating; w.hidesOnDeactivate = false
         w.isReleasedWhenClosed = false; w.delegate = self
         let bg = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 360, height: 110))
         bg.material = .popover; bg.state = .active
         let icon = drag ? PermissionIcon(frame: NSRect(x: 16, y: 30, width: 56, height: 56)) : NSImageView(frame: NSRect(x: 16, y: 30, width: 56, height: 56))
         icon.image = NSWorkspace.shared.icon(forFile: Bundle.main.bundleURL.path)
         icon.imageScaling = .scaleProportionallyUpOrDown
-        icon.setAccessibilityLabel(drag ? "Drag Atticus into System Settings" : "Atticus")
+        icon.setAccessibilityLabel(drag ? "Drag ATLAS into System Settings" : "ATLAS")
         let text = NSTextField(wrappingLabelWithString: drag
-            ? "Drag Atticus into the list, then turn it on.\nYou can also use Add (+) to choose Atticus."
+            ? "Drag ATLAS into the list, then turn it on.\nYou can also use Add (+) to choose ATLAS."
             : "Turn on \(target) in the list.\nIf it’s missing, return to setup and click Allow to request access first.")
         text.frame = NSRect(x: 86, y: 14, width: 258, height: 82)
         text.font = .systemFont(ofSize: 13)
@@ -5071,6 +5416,8 @@ func relaunchSoon() {
 enum Updater {
     static let src = Bundle.main.object(forInfoDictionaryKey: "AtticusSource") as? String ?? ""
     static let managedByNix = src.hasPrefix("/nix/store/")
+    static var manualUpdates: Bool { Bundle.main.bundleIdentifier == "com.atticus.personal.dev" }
+    static let manualMessage = "Updates are provided manually. Use the latest trusted ATLAS package when available."
     static var status = "", checking = false
     static func sh(_ script: String) -> (code: Int32, out: String) {
         let p = Process(), o = Pipe()
@@ -5081,10 +5428,12 @@ enum Updater {
         return (p.terminationStatus, String(data: o.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "")
     }
     static let version: String = {
+        if manualUpdates { return Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown" }
         if managedByNix { return (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown") + " · Nix" }
         return sh(#"cd "$0" 2>/dev/null && git log -1 --format='%h · %cd' --date=format:'%b %-d, %Y'"#).out.trimmingCharacters(in: .whitespacesAndNewlines)
     }()
     static func check(_ done: @escaping () -> Void = {}) {
+        if manualUpdates { status = manualMessage; done(); return }
         if managedByNix { status = "Run nix profile upgrade or nix run again."; done(); return }
         if src.isEmpty || ProcessInfo.processInfo.environment["ATTICUS_DIR"] != nil { status = "Preview build"; done(); return }
         guard !checking else { done(); return }
@@ -5116,6 +5465,7 @@ enum Updater {
         } else { relaunchSoon() }
     }
     static func schedule() {   // a minute after launch, then every 6 hours
+        if manualUpdates { status = manualMessage; return }
         if managedByNix { status = "Run nix profile upgrade or nix run again."; return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) { if Prefs.bool("autoUpdate") { check() } }
         Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { _ in if Prefs.bool("autoUpdate") { check() } }
@@ -5126,7 +5476,7 @@ enum Updater {
 final class Delegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         meeting.discard(); app.hush(); app.drawing.clear(); app.quietAudio.end(immediate: true); app.shush()
-        MeetingArchive.writes.notify(queue: .main) { sender.reply(toApplicationShouldTerminate: true) }
+        MeetingArchive.writes.notify(queue: .main) { AutonomyAudit.writes.notify(queue: .main) { sender.reply(toApplicationShouldTerminate: true) } }
         return .terminateLater
     }
     func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -5135,29 +5485,140 @@ final class Delegate: NSObject, NSApplicationDelegate {
     }
 }
 
+// The personal scope is entirely native and ephemeral. It stays gated until
+// the private approval channel and this policy receive independent review.
+func approvalCardMatches(_ current: String, _ incoming: String?) -> Bool { !current.isEmpty && incoming == current }
+// Host-wide monotonic clock shared with the backend; includes Mac sleep.
+func steadyTime() -> TimeInterval { var scale=mach_timebase_info_data_t(); guard mach_timebase_info(&scale)==KERN_SUCCESS, scale.denom != 0 else { return .infinity };return Double(mach_continuous_time()) * Double(scale.numer) / Double(scale.denom) / 1_000_000_000 }
+
+struct ScopedTarget {
+    let question: String, command: String, revision: String
+    let currentRevision: () -> String?
+}
+final class NativeAutonomyScope {
+    static let featureEnabled = true
+    private let enabled: Bool
+    private let clock: () -> TimeInterval
+    init(testEnabled: Bool = false, clock: @escaping () -> TimeInterval = { steadyTime() }) { self.enabled=Self.featureEnabled || testEnabled; self.clock=clock }
+    private var expires: TimeInterval = 0
+    private var targets: [ScopedTarget] = []
+    private var seen = Set<String>()
+    var hasGrant: Bool { !targets.isEmpty }
+    var active: Bool { hasGrant && clock() < expires }
+    var deadline: TimeInterval? { active ? expires : nil }
+    func revision(question:String,command:String) -> String? { targets.first(where:{$0.question==question && $0.command==command})?.revision }
+    func stop() { targets=[]; seen=[]; expires=0 }
+    func activate(_ selected: [ScopedTarget], now: TimeInterval) -> Bool {
+        guard enabled, !selected.isEmpty, selected.count <= 3 else { return false }
+        targets=selected; seen=[]; expires=now+600; return true
+    }
+    func permits(question: String, command: String, requestID: String, now: () -> TimeInterval) -> Bool {
+        guard active, requestID.range(of:#"^[0-9a-f]{64}$"#,options:.regularExpression) != nil, !seen.contains(requestID), let target=targets.first(where: { $0.question == question && $0.command == command }) else { return false }
+        seen.insert(requestID)
+        guard target.currentRevision() == target.revision else { return false }
+        return active && now() < expires
+    }
+}
+
+enum AutonomyAudit { static let writes=DispatchGroup() }
+
+// Revoke and cancel synchronously; a stalled audit must never delay Stop.
+func stopScopedAutonomy(_ scope: NativeAutonomyScope, cancel: () -> Void, audit: @escaping () -> Bool, schedule: (@escaping () -> Void) -> Void) {
+    scope.stop(); cancel(); schedule { _=audit() }
+}
+
 // The menu bar icon: quick actions, today's usage.
 final class MenuBar: NSObject, NSMenuDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    let autonomy = NativeAutonomyScope()
+    func autonomyAudit(_ event:String, command:String = "") -> Bool {
+        let root=(Prefs.path as NSString).deletingLastPathComponent
+        let path=(root as NSString).appendingPathComponent("autonomy-audit.jsonl")
+        let fd=open(path,O_WRONLY|O_CREAT|O_APPEND|O_NOFOLLOW,mode_t(0o600));guard fd>=0 else { return false };defer { close(fd) }
+        let digest=SHA256.hash(data:Data(command.utf8)).map { String(format:"%02x",$0) }.joined()
+        guard var data=try? JSONSerialization.data(withJSONObject:["event":event,"time":Date().timeIntervalSince1970,"targetHash":digest],options:[.sortedKeys]) else { return false };data.append(10)
+        let ok=data.withUnsafeBytes { raw -> Bool in guard let base=raw.baseAddress else { return false };return write(fd,base,raw.count)==raw.count }
+        return ok && fsync(fd)==0
+    }
+    var autonomyActive: Bool { autonomy.active }
+    func fileDigest(_ url: URL) -> String? {
+        guard let before=try? FileManager.default.attributesOfItem(atPath:url.path), let file=try? FileHandle(forReadingFrom:url) else { return nil }
+        defer { try? file.close() }; var hash=SHA256()
+        do { while let chunk=try file.read(upToCount:1024*1024), !chunk.isEmpty { hash.update(data:chunk) } } catch { return nil }
+        guard let after=try? FileManager.default.attributesOfItem(atPath:url.path), (before[.systemFileNumber] as? NSNumber)==(after[.systemFileNumber] as? NSNumber), (before[.size] as? NSNumber)==(after[.size] as? NSNumber), (before[.modificationDate] as? Date)==(after[.modificationDate] as? Date) else { return nil }
+        return hash.finalize().map { String(format:"%02x",$0) }.joined()
+    }
+    func appTarget(_ bundle: String) -> [ScopedTarget]? {
+        guard bundle.range(of:#"^[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9][A-Za-z0-9-]*)+$"#,options:.regularExpression) != nil,
+              let url=NSWorkspace.shared.urlForApplication(withBundleIdentifier:bundle)?.resolvingSymlinksInPath(),
+              let resolved=Bundle(url:url), resolved.bundleIdentifier == bundle, let executable=resolved.executableURL?.resolvingSymlinksInPath() else { return nil }
+        let path=url.path, home=NSHomeDirectory()+"/Applications/"
+        guard path.hasSuffix(".app"), path.hasPrefix("/Applications/") || path.hasPrefix("/System/Applications/") || path.hasPrefix(home), executable.path.hasPrefix(path+"/"), let digest=fileDigest(executable) else { return nil }
+        let revision=path+"|"+executable.path+"|"+digest
+        let current: () -> String? = { [weak self] in
+            guard let self, let next=NSWorkspace.shared.urlForApplication(withBundleIdentifier:bundle)?.resolvingSymlinksInPath(), next.path==path, let b=Bundle(url:next), b.bundleIdentifier==bundle, let exe=b.executableURL?.resolvingSymlinksInPath(), exe.path==executable.path, let h=self.fileDigest(exe) else { return nil }
+            return path+"|"+exe.path+"|"+h
+        }
+        return ["Open this installed app?","Focus this running app?"].map { ScopedTarget(question:$0,command:bundle+" — "+path,revision:revision,currentRevision:current) }
+    }
+    func destinationTarget(_ label: String) -> ScopedTarget? {
+        let path=((Prefs.path as NSString).deletingLastPathComponent as NSString).appendingPathComponent("destinations.json")
+        func read() -> (String,String)? {
+            guard let data=try? Data(contentsOf:URL(fileURLWithPath:path)), data.count <= 8_000_000, let rows=(try? JSONSerialization.jsonObject(with:data)) as? [[String:Any]] else { return nil }
+            let matches=rows.filter { ($0["label"] as? String)==label && ($0["confirmed"] as? Bool)==true && ($0["browser"] as? String)=="Safari" && ($0["type"] as? String) != "document" }
+            guard matches.count==1, let raw=matches[0]["url"] as? String, let u=URLComponents(string:raw), u.scheme=="https", u.host != nil, u.user==nil, u.password==nil, u.query==nil, u.fragment==nil, !raw.contains(where:{$0.isWhitespace}), (try? JSONSerialization.data(withJSONObject:matches[0],options:[.sortedKeys])) != nil else { return nil }
+            return (raw,SHA256.hash(data:data).map { String(format:"%02x",$0) }.joined())
+        }
+        guard let (url,revision)=read() else { return nil }
+        return ScopedTarget(question:"Open this saved destination in Safari?",command:label+" — "+url,revision:revision,currentRevision:{ read()?.1 })
+    }
+    @objc func toggleAutonomy() {
+        guard NativeAutonomyScope.featureEnabled else { return }
+        if autonomyActive {
+            stopScopedAutonomy(autonomy,cancel:{app.cancel()},audit:{[weak self] in self?.autonomyAudit("revoked") ?? false},schedule:{ work in AutonomyAudit.writes.enter();DispatchQueue.global().async { defer { AutonomyAudit.writes.leave() };work() } })
+            paint(); return
+        }
+        let panel=NSAlert();panel.messageText="Choose autonomy targets";panel.informativeText="Enter one exact installed app bundle ID and/or one confirmed HTTPS destination name."
+        let stack=NSStackView();stack.orientation = .vertical;stack.spacing=8;stack.frame=NSRect(x:0,y:0,width:370,height:56)
+        let bundle=NSTextField(string:"");bundle.placeholderString="App bundle ID (optional)";let destination=NSTextField(string:"");destination.placeholderString="Saved destination (optional)";stack.addArrangedSubview(bundle);stack.addArrangedSubview(destination);panel.accessoryView=stack;panel.addButton(withTitle:"Preview");panel.addButton(withTitle:"Cancel")
+        guard panel.runModal() == .alertFirstButtonReturn else { return }
+        let b=bundle.stringValue.trimmingCharacters(in:.whitespacesAndNewlines),d=destination.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
+        var targets:[ScopedTarget]=[]
+        if !b.isEmpty { guard Prefs.bool("foregroundAppControl"), let apps=appTarget(b) else { return };targets += apps }
+        if !d.isEmpty { guard Prefs.bool("foregroundSavedDestinations"), let site=destinationTarget(d) else { return };targets.append(site) }
+        guard !targets.isEmpty else { return }
+        let alert=NSAlert();alert.messageText="Enable scoped autonomy for 10 minutes?";alert.informativeText=targets.map { $0.command }.joined(separator:"\n")+"\n\nOnly these app and saved HTTPS actions can skip approval. Other actions require approval. Stop cancels queued actions; an already dispatched action cannot be undone.";alert.addButton(withTitle:"Enable");alert.addButton(withTitle:"Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn, targets.allSatisfy({ $0.currentRevision() == $0.revision }) else { return }
+        guard autonomyAudit("activation_confirmed"), autonomy.activate(targets,now:steadyTime()) else { let error=NSAlert();error.messageText="Autonomous mode was not enabled";error.informativeText="The local audit record could not be saved.";error.runModal();return }
+        paint();DispatchQueue.main.asyncAfter(deadline:.now()+600) { [weak self] in self?.expireAutonomyIfNeeded() }
+    }
+    func expireAutonomyIfNeeded() {
+        guard autonomy.hasGrant, !autonomy.active else { return }
+        autonomy.stop();_=autonomyAudit("expired");paint()
+    }
+    @objc func autonomyDidWake(_ notification: Notification) { expireAutonomyIfNeeded() }
     override init() {
         super.init()
+        NSWorkspace.shared.notificationCenter.addObserver(self,selector:#selector(autonomyDidWake(_:)),name:NSWorkspace.didWakeNotification,object:nil)
         item.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Atticus")
         let m = NSMenu(); m.delegate = self; item.menu = m
         item.isVisible = Prefs.bool("menuIcon")
         paint()
     }
-    func paint() { item.button?.appearsDisabled = Prefs.bool("paused"); item.button?.title = meeting.running ? " ·" : ""; item.length = meeting.running ? 38 : NSStatusItem.squareLength }
+    func paint() { item.button?.appearsDisabled = Prefs.bool("paused"); item.button?.title = autonomyActive ? " A" : meeting.running ? " ·" : ""; item.length = (meeting.running || autonomyActive) ? 38 : NSStatusItem.squareLength }
     func menuNeedsUpdate(_ m: NSMenu) {
         m.removeAllItems()
         let keys = Prefs.str("hotkeyLabel")
         let hint = Prefs.str("input") == "type" ? "Press \(keys) to type" : Prefs.str("talkMode") == "toggle" ? "Press \(keys) to talk · again to send" : "Hold \(keys) and talk"
-        let head = NSMenuItem(title: Prefs.bool("paused") ? "Atticus is paused" : hint, action: nil, keyEquivalent: "")
+        let head = NSMenuItem(title: Prefs.bool("paused") ? "ATLAS is paused" : hint, action: nil, keyEquivalent: "")
         head.attributedTitle = NSAttributedString(string: head.title, attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold), .foregroundColor: NSColor.secondaryLabelColor])
         head.isEnabled = false; m.addItem(head)
         let u = NSMenuItem(title: today(), action: nil, keyEquivalent: "")
         u.attributedTitle = NSAttributedString(string: u.title, attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.secondaryLabelColor])
         u.isEnabled = false; m.addItem(u)
         m.addItem(.separator())
-        add(m, "Ask Atticus", #selector(ask), "", "waveform")
+        if NativeAutonomyScope.featureEnabled { add(m, autonomyActive ? "Stop autonomous mode" : "Autonomous mode — approved tasks…", #selector(toggleAutonomy), "", autonomyActive ? "stop.circle" : "shield") }
+        add(m, "Ask ATLAS", #selector(ask), "", "waveform")
         add(m, agentsUI.count > 0 ? "Agents · \(agentsUI.count) running…" : "Agents…", #selector(openAgents), "", "person.2")
         if agentsUI.hasLive || agentsUI.lingering { add(m, Prefs.bool("agentsHidden") ? "Show Agent Shelf" : "Hide Agent Shelf", #selector(hideAgents), "", Prefs.bool("agentsHidden") ? "eye" : "eye.slash") }
         add(m, "Dictation History…", #selector(dictationHistory), "", "clock.arrow.circlepath")
@@ -5165,22 +5626,20 @@ final class MenuBar: NSObject, NSMenuDelegate {
             add(m, "Paste Last Dictation", #selector(pasteDictation), "v", "doc.on.clipboard"); m.items.last?.keyEquivalentModifierMask = [.control, .command]
         }
         if Prefs.bool("meeting") { add(m, meeting.running ? "Stop Meeting Copilot" : "Meeting Copilot…", #selector(toggleMeeting), "", meeting.running ? "stop.circle" : "record.circle") }
-        add(m, Prefs.bool("paused") ? "Resume Atticus" : "Pause Atticus", #selector(pause), "", Prefs.bool("paused") ? "play.fill" : "pause.fill")
+        add(m, Prefs.bool("paused") ? "Resume ATLAS" : "Pause ATLAS", #selector(pause), "", Prefs.bool("paused") ? "play.fill" : "pause.fill")
         m.addItem(.separator())
         add(m, "Settings…", #selector(openSettings), ",", "gearshape")
         let help = NSMenu(title: "Help & Feedback")
         add(help, "Setup & Permissions…", #selector(openSetup), "", "checkmark.shield")
-        add(help, "Report Feedback…", #selector(reportFeedback), "", "bubble.left")
-        add(help, "Leave a Tip…", #selector(tipJar), "", "heart")
         if !Prefs.bool("tips") { add(help, "Show Tips Again", #selector(tipsOn), "", "lightbulb") }   // a tip's "Turn off" has no Settings row to undo it
         add(m, "Help & Feedback", nil, "", "questionmark.circle").submenu = help
         m.addItem(.separator())
-        add(m, "Quit Atticus", #selector(quit), "q", "power")
+        add(m, "Quit ATLAS", #selector(quit), "q", "power")
     }
     @discardableResult func add(_ m: NSMenu, _ t: String, _ a: Selector?, _ k: String, _ symbol: String) -> NSMenuItem {
         let i = NSMenuItem(title: t, action: a, keyEquivalent: k); i.target = self
         i.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 13, weight: .regular))   // a point size keeps wide symbols' shape
-        if #available(macOS 27.0, *) { i.preferredImageVisibility = .visible }   // macOS 27 hides menu symbols by default
+        // macOS 27 menu-image preference needs an SDK that declares it.
         m.addItem(i); return i
     }
     func today() -> String {
@@ -5342,7 +5801,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 560),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         applySharing(w)
-        w.titlebarAppearsTransparent = true; w.titleVisibility = .hidden; w.title = "Atticus Settings"
+        w.titlebarAppearsTransparent = true; w.titleVisibility = .hidden; w.title = "ATLAS Settings"
         w.isReleasedWhenClosed = false; w.delegate = self
         w.contentMinSize = NSSize(width: 700, height: 460); w.contentMaxSize = NSSize(width: 1000, height: 820)   // wider only spreads the page into empty space
         w.collectionBehavior.insert(.fullScreenNone)   // the green button zooms up to the max size
@@ -5380,7 +5839,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         send("dictation", DictationData.state())
         send("whisper", Whisper.shared.status())
         js("st.motion(\(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion))")
-        var d: [String: Any] = ["prefs": Prefs.d, "mics": microphoneChoices(), "version": Updater.version, "update": Updater.status, "managedUpdates": Updater.managedByNix, "sharingUnavailable": ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27,
+        var d: [String: Any] = ["devRuntimeSetup": Bundle.main.bundleIdentifier == "com.atticus.personal.dev", "manualUpdates": Updater.manualUpdates, "prefs": Prefs.d, "mics": microphoneChoices(), "version": Updater.version, "update": Updater.status, "managedUpdates": Updater.managedByNix, "sharingUnavailable": ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27,
                                 "hotkeyTaken": !hotkeyRegistered, "dictateHotkeyTaken": !Prefs.str("dictateHotkeyLabel").isEmpty && !dictateHotkeyRegistered, "globeTaken": globeKeyTaken()]
         let routines = (Prefs.path as NSString).deletingLastPathComponent + "/routines.json"
         d["routines"] = (try? JSONSerialization.jsonObject(with:Data(contentsOf:URL(fileURLWithPath:routines)))) as? [[String:Any]] ?? []
@@ -5393,8 +5852,9 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
     func refresh() {   // usage, saved rules, Claude plan: atticus.py --state (it runs Claude Code, so off the main thread)
         DispatchQueue.global().async { [weak self] in
             let p = py(["--state"]), out = Pipe(); p.standardOutput = out
-            try? p.run(); p.waitUntilExit()
+            do { try p.run() } catch { return }
             let s = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            p.waitUntilExit()
             guard s.hasPrefix("{") else { return }
             DispatchQueue.main.async { self?.web?.evaluateJavaScript("st.state(\(s))") }
         }
@@ -5534,7 +5994,12 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
             if alert.runModal() == .alertSecondButtonReturn { meetings(["action": "clear"]) }
             return
         }
-        guard Prefs.set(k, v) else { push(); send("notice", ["text": "Couldn’t save that change, so the old setting is back."]); return }
+        guard Prefs.set(k, v) else {
+            let text = (Prefs.bool("legacyApiKeyPresent") || Prefs.bool("legacyCodexApiKeyPresent")) ? "Move or remove the existing plaintext provider key before changing settings." :
+                       (["apiKey", "codexApiKey"].contains(k) && Prefs.bool("keychainMode") ? "Couldn’t finish saving the key. Keychain may have changed; check it before retrying." : "Couldn’t save that change, so the old setting is back.")
+            push(); send("notice", ["text": text]); return
+        }
+        if ["apiKey", "codexApiKey"].contains(k), Prefs.bool("keychainMode") { push(); send("notice", ["text": "Provider key setting updated in Keychain."]) }
         if k == "wakeWord" {
             if v as? Bool == true { app.enableWakeWord() }
             else {
@@ -5583,9 +6048,44 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
     func handle(_ b: [String: Any]) {
         guard let what = b["do"] as? String else { return }
         switch what {
+        case "migrateBothProviderKeys":
+            if confirm("Move both existing provider keys to Keychain?", "This moves the custom-server and Codex keys from this development profile. No task is started.", "Move Both") {
+                let ok = Prefs.resolveBothLegacyKeys(migrate: true); push()
+                send("notice", ["text": ok ? "Both provider keys moved to Keychain." : "Could not finish. Existing settings were kept; Keychain may also have changed."])
+            }
+        case "discardBothProviderKeys":
+            if confirm("Remove both old plaintext provider keys?", "This removes both keys from the development profile without moving them.", "Remove Both") {
+                let ok = Prefs.resolveBothLegacyKeys(migrate: false); push()
+                send("notice", ["text": ok ? "Both old provider keys removed." : "Could not remove the keys. Existing settings were kept."])
+            }
+        case "migrateLegacyCodexKey":
+            if confirm("Move the existing Codex API key to Keychain?", "This affects only the development profile and does not start a Codex task.", "Move to Keychain") {
+                let ok = Prefs.migrateLegacyCodexKey(); push()
+                send("notice", ["text": ok ? "Codex API key moved to Keychain." : "Could not finish. Existing settings were kept; Keychain may also have changed."])
+            }
+        case "discardLegacyCodexKey":
+            if confirm("Remove the old plaintext Codex API key?", "This removes it from the development profile without moving it.", "Remove Old Key") {
+                let ok = Prefs.discardLegacyCodexKey(); push()
+                send("notice", ["text": ok ? "Old Codex API key removed." : "Could not remove the key. Existing settings were kept."])
+            }
+        case "deleteCodexApiKey":
+            if confirm("Remove the saved Codex API key?", "Atticus will delete this development profile’s Codex Keychain item.", "Remove Key") { apply("codexApiKey", "") }
+        case "discardLegacyProviderKey":
+            if confirm("Remove the old plaintext provider key?", "This removes the key from this development profile without moving it to Keychain.", "Remove Old Key") {
+                let ok = Prefs.discardLegacyProviderKey(); push()
+                send("notice", ["text": ok ? "Old plaintext key removed." : "Could not remove the key. The existing settings were kept."])
+            }
+        case "deleteProviderKey":
+            if confirm("Remove the saved provider key?", "Atticus will delete this development profile’s Keychain item.", "Remove Key") { apply("apiKey", "") }
+        case "migrateProviderKey":
+            if confirm("Move the existing provider key to Keychain?", "Atticus will remove the plaintext key from this development profile only after Keychain accepts it.", "Move to Keychain") {
+                let ok = Prefs.migrateLegacyProviderKey(); push()
+                send("notice", ["text": ok ? "Provider key moved to Keychain." : "Could not finish. The existing settings were kept; the key may also have been saved in Keychain."])
+            }
         case "feedbackInvalidate": feedbackJob += 1; feedbackURL = nil
         case "feedbackPreview": feedbackPreview(b["include"] as? Bool ?? false, b["text"] as? String ?? "", b["revision"] as? Int ?? 0)
-        case "feedbackOpen": if let feedbackURL { NSWorkspace.shared.open(feedbackURL) }
+        case "feedbackOpen": break // Upstream reports are disabled in the personal fork.
+        case "setupPiRuntime": openPiRuntimeSetup()
         case "whisperDownload": Whisper.shared.download(b["id"] as? String ?? "") { [weak self] in Task { @MainActor in self?.send("whisper", Whisper.shared.status()) } }   // progress arrives off the main thread
         case "whisperCancel": Whisper.shared.cancel(b["id"] as? String ?? "")
         case "whisperDelete": Whisper.shared.delete(b["id"] as? String ?? ""); send("whisper", Whisper.shared.status())
@@ -5619,9 +6119,6 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         case "clearDictate":
             if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
             Prefs.set("dictateHotkeyOff", true); recording = "dictate"; done((-1, 0, ""))
-        case "unlearn":
-            guard let say = b["say"] as? String else { return }
-            DispatchQueue.global().async { [weak self] in self?.helper(["--unlearn", say]); DispatchQueue.main.async { self?.refresh() } }
         case "checkUpdate": Updater.check { [weak self] in self?.push() }
         case "agents": agentsUI.openView()
         case "routineRemove":
@@ -5648,6 +6145,93 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         case "clearRecent":
             guard confirm("Forget this conversation?", "Follow-ups like “open the second one” will start fresh.", "Forget") else { return }
             try? FileManager.default.removeItem(atPath: app.recent); app.lastDone = .distantPast; send("notice", ["text": "Conversation forgotten."])
+        case "memoryIndexExport":
+            guard let categories = b["categories"] as? [String], !categories.isEmpty,
+                  Set(categories).isSubset(of:Set(["profile","rules","destinations","projects","workflows","corrections","tasks","sessions"])) else { send("notice", ["text":"Select at least one memory category."]); return }
+            guard confirm("Export memory metadata?", "Only category, source, scope, confirmation, confidence, and task status are exported. Names, content, paths and URLs are excluded.", "Choose Location…") else { return }
+            let chooser = NSSavePanel(); chooser.allowedContentTypes = [.json]; chooser.nameFieldStringValue = "Atticus Memory Metadata.json"
+            chooser.begin { [weak self] response in
+                guard response == .OK, let url = chooser.url else { return }
+                DispatchQueue.global().async {
+                    let process = py(["--memory-index-export"]), input = Pipe(), output = Pipe(); process.standardInput = input; process.standardOutput = output; process.standardError = FileHandle.nullDevice
+                    fcntl(input.fileHandleForWriting.fileDescriptor,F_SETNOSIGPIPE,1)
+                    do {
+                        try process.run(); try input.fileHandleForWriting.write(contentsOf:JSONSerialization.data(withJSONObject:categories)); try input.fileHandleForWriting.close()
+                        let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+                        guard let result = try JSONSerialization.jsonObject(with:data) as? [String:Any], result["type"] as? String == "memory-metadata" else { throw NSError(domain:"AtticusMemoryExport",code:1) }
+                        try data.write(to:url, options:.atomic); try FileManager.default.setAttributes([.posixPermissions:0o600], ofItemAtPath:url.path)
+                        self?.send("notice", ["text":"Memory metadata exported locally."])
+                    } catch { if process.isRunning { process.terminate() }; self?.send("notice", ["text":"Could not export memory metadata."]) }
+                }
+            }
+        case "memoryTransaction":
+            guard let category = b["category"] as? String, ["profile", "rules", "projects", "corrections", "workflows"].contains(category),
+                  let action = b["action"] as? String, ["edit", "delete", "restore"].contains(action) else { return }
+            let title = b["title"] as? String ?? category
+            let message = action == "restore" ? "Restore the last \(category) change?" : action == "delete" ? "Forget \(title)?" : "Save changes to \(title)?"
+            let detail = category == "workflows" ? "A private recovery copy is kept. Editing shortcut steps requires reconfirmation before replay. Restore stops if the store changed." : "A private local recovery copy is kept. Restore stops if the store has changed."
+            guard confirm(message, detail, action == "delete" ? "Forget" : "Continue") else { refresh(); return }
+            var request: [String:Any] = ["category":category, "action":action, "confirmed":true]
+            for key in ["identifier", "revision", "value", "backup_id"] { if let value = b[key] { request[key] = value } }
+            DispatchQueue.global().async { [weak self] in
+                let process = py(["--memory-transaction"]), input = Pipe(), output = Pipe(); process.standardInput = input; process.standardOutput = output; process.standardError = FileHandle.nullDevice
+                fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+                do {
+                    let data = try JSONSerialization.data(withJSONObject:request); try process.run()
+                    try input.fileHandleForWriting.write(contentsOf:data); try input.fileHandleForWriting.close()
+                    let result = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+                    guard let object = try JSONSerialization.jsonObject(with:result) as? [String:Any] else { throw NSError(domain:"AtticusMemory",code:1) }
+                    self?.send("memoryTransactionResult", object); self?.refresh()
+                } catch { if process.isRunning { process.terminate() }; self?.send("memoryTransactionResult", ["error":"Could not change memory."]) }
+            }
+        case "addDocumentDestination":
+            let chooser=NSOpenPanel(); chooser.title="Choose a local document"; chooser.canChooseFiles=true; chooser.canChooseDirectories=false; chooser.allowsMultipleSelection=false
+            guard chooser.runModal() == .OK, let url=chooser.url else { return }
+            let field=NSTextField(string:url.deletingPathExtension().lastPathComponent); field.frame=NSRect(x:0,y:0,width:300,height:24)
+            let alert=NSAlert(); alert.messageText="Name this document"; alert.informativeText="Save a local reference to \(url.lastPathComponent). The file must remain unchanged until opened."; alert.accessoryView=field; alert.addButton(withTitle:"Save"); alert.addButton(withTitle:"Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            let label=field.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
+            guard !label.isEmpty, confirm("Save \(label)?", "This document reference stays on this Mac. Opening it is a request; check the app before assuming it is ready.", "Save") else { return }
+            let request:[String:Any]=["label":label,"path":url.path,"confirmed":true]
+            DispatchQueue.global().async { [weak self] in
+                let process=py(["--personal-save-document"]), input=Pipe(), output=Pipe();process.standardInput=input;process.standardOutput=output;process.standardError=FileHandle.nullDevice
+                do { let data=try JSONSerialization.data(withJSONObject:request);try process.run();try input.fileHandleForWriting.write(contentsOf:data);try input.fileHandleForWriting.close();let result=output.fileHandleForReading.readDataToEndOfFile();process.waitUntilExit();let object=(try? JSONSerialization.jsonObject(with:result)) as? [String:Any] ?? ["error":"Could not save document."];DispatchQueue.main.async { self?.send("destinationResult",object);self?.refresh() } }
+                catch { if process.isRunning { process.terminate() };DispatchQueue.main.async { self?.send("destinationResult",["error":"Could not save document."]) } }
+            }
+        case "memoryDestination":
+            guard let action = b["action"] as? String, ["edit", "delete", "restore"].contains(action) else { return }
+            let label = b["label"] as? String ?? ""
+            let message = action == "restore" ? "Restore the last destination change?" : action == "delete" ? "Forget \(label)?" : "Save changes to \(label)?"
+            guard confirm(message, "A local recovery record is kept. Restore stops if the registry changed in the meantime.", action == "delete" ? "Forget" : "Continue") else { return }
+            var request: [String:Any] = ["action":action, "confirmed":true]
+            for key in ["label", "url", "aliases", "backup_id", "revision"] { if let value = b[key] { request[key] = value } }
+            DispatchQueue.global().async { [weak self] in
+                let process = py(["--memory-destination"]), input = Pipe(), output = Pipe(); process.standardInput = input; process.standardOutput = output; process.standardError = FileHandle.nullDevice
+                fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+                do {
+                    let data = try JSONSerialization.data(withJSONObject:request); try process.run()
+                    try input.fileHandleForWriting.write(contentsOf:data); try input.fileHandleForWriting.close()
+                    let result = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+                    guard let object = try JSONSerialization.jsonObject(with:result) as? [String:Any] else { throw NSError(domain:"AtticusMemory",code:1) }
+                    self?.send("destinationResult", object); self?.refresh()
+                } catch { if process.isRunning { process.terminate() }; self?.send("destinationResult", ["error":"Could not change destination."]) }
+            }
+        case "memoryExportSafe":
+            guard confirm("Export redacted preferences?", "Only non-sensitive preferences you supplied are included. Other memory is excluded. Review the local file before sharing; automatic redaction can miss information.", "Choose Location…") else { return }
+            let chooser = NSSavePanel(); chooser.allowedContentTypes = [.json]; chooser.nameFieldStringValue = "Atticus Preferences.json"
+            chooser.begin { [weak self] response in
+                guard response == .OK, let url = chooser.url else { return }
+                DispatchQueue.global().async {
+                    let process = py(["--memory-export-safe"]), output = Pipe(); process.standardOutput = output; process.standardError = FileHandle.nullDevice
+                    do {
+                        try process.run(); let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+                        guard process.terminationStatus == 0, (try? JSONSerialization.jsonObject(with:data)) != nil else { throw NSError(domain:"AtticusExport", code:1) }
+                        try data.write(to:url, options:.atomic)
+                        try FileManager.default.setAttributes([.posixPermissions:0o600], ofItemAtPath:url.path)
+                        DispatchQueue.main.async { self?.send("notice", ["text":"Redacted preferences exported locally. Review the file before sharing."]) }
+                    } catch { DispatchQueue.main.async { self?.send("notice", ["text":"Could not export preferences."]) } }
+                }
+            }
         case "profileImport": importProfile()   // the button is the only path that requests Contacts/Mail access
         case "me":
             guard let action = b["action"] as? String else { return }
@@ -5655,21 +6239,12 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
             switch action {
             case "add":
                 guard let category = b["category"] as? String, let text = b["text"] as? String else { return }; args += [category, text]
-            case "set":
-                guard let id = b["id"] as? String, let text = b["text"] as? String else { return }; args += [id, text]
-            case "drop":
-                guard let id = b["id"] as? String else { return }; args.append(id)
-            case "forget-source":
-                guard let source = b["source"] as? String, confirm("Forget everything from \(source)?", "These details are removed from About you. This can’t be undone.", "Forget") else { return }; args.append(source)
             default: return
             }
             DispatchQueue.global().async { [weak self] in self?.helper(args); DispatchQueue.main.async { self?.refresh() } }
-        case "forget", "remember":
+        case "remember":
             guard let line = b["line"] as? String else { return }
-            DispatchQueue.global().async { [weak self] in self?.helper(["--" + what, line]); DispatchQueue.main.async { self?.refresh() } }
-        case "rule":   // a rule edited in place
-            guard let old = b["old"] as? String, let text = b["text"] as? String else { return }
-            DispatchQueue.global().async { [weak self] in self?.helper(["--rule", old, text]); DispatchQueue.main.async { self?.refresh() } }
+            DispatchQueue.global().async { [weak self] in self?.helper(["--remember", line]); DispatchQueue.main.async { self?.refresh() } }
         case "apps": Apps.q.async { [weak self] in self?.send("apps", Apps.list()) }
         case "allow":
             guard let ids = b["ids"] as? [String] else { return }
@@ -7852,6 +8427,7 @@ enum Hands {
                     // Pressing the element around an unmapped point clicks its center, not the point.
                     if let e, exact == nil || n.id != 0, !double && !right && !front, perform(e,["AXPress","AXPick","AXConfirm","AXOpen"]) { }
                     else {
+                        if env["ATTICUS_AX_ONLY"] == "1" { throw Failure("This control has no supported Accessibility press; nothing was clicked.") }
                         // A mouse click can change only pixels (a canvas, a map, a video); they show whether it took.
                         if env["ATTICUS_AX_ONLY"] != "1" { spotPixels = fingerprint(before, around: at) }
                         try gesture(front) { try mouse(at,a,double:double,right:right,front:$0) }
@@ -8019,12 +8595,43 @@ if CommandLine.arguments.count >= 3, ["--window-target","--target-app"].contains
 }
 
 // One Atticus at a time: a lock the system drops when the process ends (opened by hand + started by launchd = two)
+if CommandLine.arguments.dropFirst() == ["--monotonic-selftest"] { print(steadyTime()); exit(0) }
 if CommandLine.arguments.dropFirst() == ["--selftest"] {
     precondition(transcriptKey(" Open   Notes. ") == transcriptKey("open notes"))
     precondition(transcriptKey("calculate 1.5") != transcriptKey("calculate 15"))
     precondition(transcriptKey("search a b") != transcriptKey("search ab"))
     precondition(transcriptKey("open a-b.com") != transcriptKey("open ab.com"))
+    var existing:[String:Any]=["client":"claude","foregroundModel":"legacy","other":"kept"]
+    Prefs.personalFirstRunDefaults(&existing,fileExists:true);precondition(existing["client"] as? String == "claude" && existing["foregroundModel"] as? String == "legacy" && existing["other"] as? String == "kept")
+    var fresh:[String:Any]=[:];Prefs.personalFirstRunDefaults(&fresh,fileExists:false);precondition(fresh["client"] as? String == "pi" && fresh["foregroundProvider"] as? String == "openai" && fresh["foregroundModel"] as? String == "gpt-6.1-terra")
+    precondition(approvalCardMatches("current", "current"))
+    precondition(!approvalCardMatches("current", "stale"))
+    precondition(!approvalCardMatches("current", nil))
+    precondition(!approvalCardMatches("", ""))
+    var fakeNow:TimeInterval=100
+    let scope=NativeAutonomyScope(testEnabled:true,clock:{fakeNow})
+    var revision="v1"
+    let fixture=ScopedTarget(question:"Open this installed app?",command:"com.example.Fixture — /Applications/Fixture.app",revision:"v1",currentRevision:{revision})
+    precondition(scope.activate([fixture],now:fakeNow))
+    precondition(scope.permits(question:fixture.question,command:fixture.command,requestID:String(repeating:"a",count:64),now:{fakeNow}))
+    precondition(!scope.permits(question:fixture.question,command:fixture.command,requestID:String(repeating:"a",count:64),now:{fakeNow}))
+    revision="v2";precondition(!scope.permits(question:fixture.question,command:fixture.command,requestID:String(repeating:"b",count:64),now:{fakeNow}))
+    revision="v1";fakeNow=701;precondition(!scope.permits(question:fixture.question,command:fixture.command,requestID:String(repeating:"c",count:64),now:{fakeNow}))
+    scope.stop();precondition(!scope.active)
+    fakeNow=100
+    let slow=ScopedTarget(question:fixture.question,command:fixture.command,revision:"v1",currentRevision:{fakeNow=701;return "v1"})
+    precondition(scope.activate([slow],now:fakeNow))
+    precondition(!scope.permits(question:slow.question,command:slow.command,requestID:String(repeating:"d",count:64),now:{fakeNow}))
+    let freshScope=NativeAutonomyScope();precondition(!freshScope.active)
+    fakeNow=100;precondition(scope.activate([fixture],now:fakeNow))
+    let auditStarted=DispatchSemaphore(value:0),releaseAudit=DispatchSemaphore(value:0),auditFinished=DispatchSemaphore(value:0)
+    var cancelled=false
+    stopScopedAutonomy(scope,cancel:{cancelled=true},audit:{auditStarted.signal();_=releaseAudit.wait(timeout:.now()+2);auditFinished.signal();return false},schedule:{work in DispatchQueue.global().async { work() }})
+    precondition(cancelled && !scope.active && auditStarted.wait(timeout:.now()+1) == .success)
+    precondition(!scope.permits(question:fixture.question,command:fixture.command,requestID:String(repeating:"e",count:64),now:{fakeNow}))
+    releaseAudit.signal();precondition(auditFinished.wait(timeout:.now()+1) == .success)
     Hands.selftest()
+    if Updater.manualUpdates { var done=false; Updater.check { done=true }; precondition(done && Updater.status == Updater.manualMessage) }
     print("native selftest ok"); exit(0)
 }
 // The brain's typing helper shares selection validation and clipboard ownership with Replace.
@@ -8090,7 +8697,7 @@ func showNudge(_ info: [String: Any]) {
     let g = meeting.generation
     DispatchQueue.main.asyncAfter(deadline: .now() + 45) { if meeting.generation == g && !meeting.running && meeting.nudge != nil { meeting.discard() } }
 }
-Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in checkCalendar() }
+if !devTextOnly { Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in checkCalendar() } }
 // "Notice when you're in a call": a call app holding the mic for 3 s gets one card per call (like Granola's "Meeting detected").
 // Dictation apps (Wispr Flow, Atticus itself) aren't call apps, and a short debounce skips transient mic use. Browser helpers share the browser's prefix.
 let callApps = ["us.zoom.xos": "Zoom", "com.microsoft.teams": "Teams", "com.apple.FaceTime": "FaceTime", "com.tinyspeck.slackmacgap": "Slack",
@@ -8122,12 +8729,19 @@ func checkMic() {
     callNudged.insert(a)
     showNudge(["title": a == "Slack" ? "Huddle detected" : "Meeting detected", "when": "In \(a) · Want Atticus to listen?", "who": "", "context": "", "app": a])
 }
-Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in checkMic() }
+if !devTextOnly { Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in checkMic() } }
 let app = App()
-Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in app.wakeTick() }
+if !devTextOnly { Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in app.wakeTick() } }
 let agentsUI = AgentPanels()
 let routineWake = RoutineWake()
 let onboarding = Onboarding()
+if devTextOnly {
+    Prefs.d["selection"] = false; Prefs.d["instant"] = false; Prefs.d["ahead"] = false; Prefs.d["wakeWord"] = false
+    NSApplication.shared.setActivationPolicy(.accessory); NSApp.activate(ignoringOtherApps:true)
+    app.show(); app.panel.makeKey(); app.panel.makeFirstResponder(app.web)
+    app.web.evaluateJavaScript("(()=>{let n=0;const t=setInterval(()=>{if(window.ui){clearInterval(t);window.ui.draft('');}else if(++n>100)clearInterval(t)},100)})()")
+    NSApplication.shared.run(); exit(0)
+}
 if !UserDefaults.standard.bool(forKey: "onboarded") { DispatchQueue.main.async { onboarding.open() } }
 else { Onboarding.plan { c in if c["ok"] as? Bool != true { onboarding.open(automatic: true) } } }   // set up once, but Claude signed out since
 // An idea only while the user is at the Mac and nothing else wants them: no call, sharing, full-screen app, setup, or Atticus in use.

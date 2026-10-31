@@ -421,7 +421,8 @@
   <i id="check"></i><div class="dn" id="dn" role="status"></div>
   <div id="pointbar" role="group" aria-label="Point at your screen"><span class="chip"><img alt="What you marked" hidden><i></i><span>Marked</span><button class="rm" title="Remove mark" aria-label="Remove mark"><svg viewBox="0 0 10 10"><path d="M2 2l6 6M8 2L2 8"/></svg></button></span>
     <span class="hint" aria-live="polite"></span><span class="keys"><button class="go gotit">Got it</button></span></div>
-  <div id="comp" inert><input id="ask" placeholder="Ask Atticus…" autocomplete="off" spellcheck="false" aria-label="Ask Atticus">
+  <div id="comp" inert><input id="ask" placeholder="Ask ATLAS…" autocomplete="off" spellcheck="false" aria-label="Ask ATLAS">
+    <button id="new-conversation" title="Clear this conversation" aria-label="New conversation">New</button>
     <div id="models" role="menu" aria-label="Model"></div><button id="model" title="Model" aria-label="Model" hidden></button>
     <button id="point" title="Point at your screen" aria-label="Point at your screen" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M9 8l11 4.5-4.6 1.9L13.5 19z"/><path d="M5.1 11.9A5.5 5.5 0 0 1 12.9 4.1"/></svg></button>
     <button id="mic" title="Talk instead" aria-label="Talk instead"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button></div>
@@ -464,6 +465,7 @@
   };
   for (let i = 0; i < 9; i++) $('dictwave').append(document.createElement('i'));
   const post = m => webkit.messageHandlers.c.postMessage(m);
+  $('new-conversation').onclick = () => post({newConversation:true});
   let atBottom = true;   // the user scrolled up to read: new steps must not yank them back down
   // only the user's own wheel/trackpad decides (our scrolls and growing steps must not): up = stay put, back to the bottom = follow again
   $('thread').addEventListener('wheel', e => { if (e.deltaY < 0) atBottom = false; else setTimeout(() => { const t = $('thread'); atBottom = t.scrollHeight - t.scrollTop - t.clientHeight < 90; }, 0); }, { passive: true });
@@ -720,7 +722,7 @@
   const clockBegin = () => {
     if (clockStart !== null || clockHeld !== null || !turn()) return;
     clock = document.createElement('div'); clock.className = 'elapsed';
-    clock.title = 'Time Atticus spent working. Waiting for your pick or approval is not counted.';
+    clock.title = 'Time ATLAS spent working. Waiting for your pick or approval is not counted.';
     clock.innerHTML = '<b>0.00 s</b>';
     turn().append(clock); clockStart = performance.now(); clockTick();
   };
@@ -777,13 +779,13 @@
     moveFailed(){status('Could not move');fit();},
     paused(on=true){
       $('thread').querySelector('.paused')?.remove();
-      if(!on){status('Atticus resumed');fit();return}
-      const d=document.createElement('div');d.className='ok offer paused';d.innerHTML='<b>Atticus is paused</b><div><button class="go">Resume</button></div>';d.querySelector('button').onclick=()=>post({resume:true});
+      if(!on){status('ATLAS resumed');fit();return}
+      const d=document.createElement('div');d.className='ok offer paused';d.innerHTML='<b>ATLAS is paused</b><div><button class="go">Resume</button></div>';d.querySelector('button').onclick=()=>post({resume:true});
       $('thread').append(d);status('Paused');fit();
     },
     workerFailed(){
       working=false;clockStop();settle();status('Couldn’t start');
-      const d=document.createElement('div');d.className='ok offer worker';d.innerHTML='<b>Atticus’s helper couldn’t start</b><p>Retry, or open Setup & Permissions to repair it.</p><div><button>Open Setup</button><button class="go">Retry</button></div>';
+      const d=document.createElement('div');d.className='ok offer worker';d.innerHTML='<b>ATLAS’s helper couldn’t start</b><p>Retry, or open Setup & Permissions to repair it.</p><div><button>Open Setup</button><button class="go">Retry</button></div>';
       const [setup,retry]=d.querySelectorAll('button');setup.onclick=()=>post({setup:true});retry.onclick=()=>{retry.disabled=true;status('Starting…',true);post({workerRetry:true})};
       (turn()||$('thread')).append(d);fit();
     },
@@ -801,7 +803,7 @@
     agentCount(value){const count=typeof value==='number'?value:value.count,pill=$('agents-pill'),label=count+' agent'+(count===1?'':'s');pill.hidden=!count;pill.classList.toggle('attention',!!value.attention);
       pill.lastChild.textContent=label;pill.title=value.attention?'An agent needs you':'Open Agents';pill.setAttribute('aria-label',label+(value.attention?', one needs you':' running')+'. Open Agents');fit();},
     agentEscape(){const b=$('thread').querySelector('.agent-card [data-esc]');if(b)b.click();else post({agentGone:true});},   // Esc is a native hotkey: it picks the card's quiet choice
-    selected(t) {   // the text Atticus is working from, so the user knows it saw the right thing
+    selected(t) {   // the text ATLAS is working from, so the user knows it saw the right thing
       const d = turn(); if (!d || !t.trim()) return;
       const s = document.createElement('div'); s.className = 'sel'; s.textContent = 'Selected: “' + t.trim().replace(/\s+/g, ' ') + '”';
       d.prepend(s); fit();
@@ -815,7 +817,7 @@
       for (const [label, action] of actions) {
         const b = document.createElement('button'); b.textContent = label;
         if (mode === 'draft' && action === 'copy' && !editable) b.className = 'go';
-        if (action === 'replace') { b.className = mode === 'delete' ? 'go del' : 'go'; b.disabled = !editable; b.title = !editable ? 'This app does not let Atticus edit here. Use Copy.' : mode === 'draft' ? 'Insert at your cursor' : label + ' the selected text'; }
+        if (action === 'replace') { b.className = mode === 'delete' ? 'go del' : 'go'; b.disabled = !editable; b.title = !editable ? 'This app does not let ATLAS edit here. Use Copy.' : mode === 'draft' ? 'Insert at your cursor' : label + ' the selected text'; }
         b.onclick = e => { e.stopPropagation(); post(action === 'copy' ? {copy: draft} : {[action]: true}); };
         bar.append(b);
       }
@@ -830,7 +832,7 @@
       bar.querySelector('.go').disabled = true; fit();
     },
     mini(m) { miniUpdate(m); },
-    point(value) {   // {active, marked, picked, thumb}: pointing now, a mark is waiting, it is one of Atticus's marks, a picture of it; false: none
+    point(value) {   // {active, marked, picked, thumb}: pointing now, a mark is waiting, it is one of ATLAS's marks, a picture of it; false: none
       const active = !!value?.active, marked = !!value?.marked, button = $('point'), img = bar.querySelector('img'), was = $('status').textContent;
       button.classList.toggle('active', active); button.classList.toggle('marked', marked);
       button.setAttribute('aria-pressed', active);
@@ -1074,7 +1076,7 @@
       return true;
     },
     notice(s) { status(s, true); },
-    ask([q, cmd, retry, details]) {   // retry: a failure card (Not now / Retry) instead of an approval
+    ask([q, cmd, retry, details, approvalToken]) {   // retry: a failure card (Not now / Retry) instead of an approval
       $('thread').querySelectorAll('.ok').forEach(e => e.remove()); unpin(); unstream();
       const d = document.createElement('div'); d.className = 'ok';
       if (retry) {
@@ -1097,27 +1099,16 @@
       if (detailsBtn) detailsBtn.onclick = e => { e.stopPropagation(); post({ copy: details }); };
       d.querySelectorAll(':scope > div > button').forEach((b, i) => b.onclick = e => {
         e.stopPropagation(); if (d.classList.contains('gone')) return;
-        post(retry ? { pick: b.dataset.answer } : { allow: !!i }); clockGo(); status(retry ? (i ? 'Trying again' : 'Not now') : i ? 'Allowed' : 'Not allowed', true); setState('solving');
+        post(retry ? { pick: b.dataset.answer } : { allow: !!i, approvalToken }); clockGo(); status(retry ? (i ? 'Trying again' : 'Not now') : i ? 'Allowed' : 'Not allowed', true); setState('solving');
         d.classList.add('gone'); follow(360); setTimeout(() => { d.remove(); fit(); }, 360);
       });
       (turn() || $('thread')).append(d); setState('breathing'); status('Waiting for you'); clockHold(); fit();
       setTimeout(() => {
         if (!d.isConnected || d.classList.contains('gone')) return;
-        post(retry ? { pick: 'n' } : { allow: false }); clockGo(); d.remove(); status(retry ? 'Offer expired' : 'Approval expired', true); setState('solving'); fit();
+        post(retry ? { pick: 'n' } : { allow: false, approvalToken }); clockGo(); d.remove(); status(retry ? 'Offer expired' : 'Approval expired', true); setState('solving'); fit();
       }, 60000);
     },
-    improve() {   // once, after a task that worked: people who updated never saw setup's question
-      $('thread').querySelectorAll('.ok.improve').forEach(e => e.remove());
-      const d = document.createElement('div'); d.className = 'ok offer improve';
-      d.innerHTML = '<b>Help make Atticus better?</b><p>When a task fails, send what you asked, the steps and why. Anonymous, cleaned first. Change it in Settings.</p><div><button>Not Now</button><button class="go">Help Improve</button></div>';
-      d.querySelectorAll(':scope > div > button').forEach((b, i) => b.onclick = e => {
-        e.stopPropagation(); if (d.classList.contains('gone')) return;
-        post({ improve: !!i }); status(i ? 'Thank you' : '', true);
-        d.classList.add('gone'); follow(360); setTimeout(() => { d.remove(); fit(); }, 360);
-      });
-      d.onanimationend = () => d.style.animation = 'none';
-      (turn() || $('thread')).append(d); fit();
-    },
+    improve() { }, // Founder reporting is disabled in the personal fork.
     pick({ q, options }) {   // "which one?": the index picked (or "" = none of these) goes back to the app, then the card goes
       $('thread').querySelectorAll('.pk').forEach(e => e.remove()); unstream();
       const d = document.createElement('div'); d.className = 'pk';

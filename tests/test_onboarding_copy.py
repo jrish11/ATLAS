@@ -13,10 +13,12 @@ class OnboardingMatchesAppTests(unittest.TestCase):
     def setUpClass(cls):
         cls.page = (ROOT / 'ui/onboarding.html').read_text()
 
-    def test_skip_all_jumps_to_the_closing_pages(self):
+    def test_skip_all_jumps_to_done_without_founder_prompts(self):
         self.assertIn('id="skip-all">Skip All</button>', self.page)
-        self.assertIn("$('skip-all').onclick = () => go('improve');", self.page)
-        self.assertIn("$('skip-all').hidden = pages.indexOf(id) >= pages.indexOf('improve');", self.page)
+        self.assertIn("$('skip-all').onclick = () => go('done');", self.page)
+        self.assertIn("$('skip-all').hidden = pages.indexOf(id) >= pages.indexOf('done');", self.page)
+        self.assertNotIn('<section class="page" id="improve">', self.page)
+        self.assertNotIn('<section class="page" id="tip">', self.page)
         self.assertIn("$('finish').onclick = () => post({ do: 'done' });", self.page)
         swift = (ROOT / 'Atticus.swift').read_text()
         self.assertIn('if b["do"] == "done" { return finish() }', swift)

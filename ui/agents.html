@@ -132,11 +132,23 @@ footer { padding:12px 20px 16px; border-top:.5px solid var(--line) } .ask { disp
 @media (max-width:640px) { #full { grid-template-columns:172px minmax(0,1fr) } #page { padding:6px 18px 22px } .meta { display:block } .item .meta small+small { margin-top:2px } .meta small+small::before { content:none } }
 @keyframes breathe { 50% { opacity:.4 } } @keyframes sheen { to { background-position:-150% 0 } } @keyframes enter { from { opacity:0; transform:translateY(6px) } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:opacity .16s!important } .live-text { color:var(--fg); background:none } }
+#codex-create { padding:14px; border:1px solid var(--line); border-radius:12px; margin-bottom:16px }
+#codex-create[hidden] { display:none } #codex-form { display:grid; gap:10px } #codex-form h2,#codex-form p { margin:0 }
+#codex-form p { color:var(--fg2); font-size:12px; line-height:1.5 } #codex-folder,#codex-task { width:100%; background:var(--fill); color:var(--fg); border:1px solid var(--line); border-radius:7px; padding:8px; font:inherit; user-select:text }
 </style>
 <div id="shelf"></div>
-<div id="full"><aside><div class="side-head"><b>Agents</b><div class="seg" id="tabs" role="group" aria-label="Show" hidden><button data-v="">Agents</button><button data-v="chats">Chats</button></div></div><div id="named-status" role="status" aria-live="polite"></div><div id="list"></div><div class="side-foot" id="aside-foot"><button id="clear-failed" class="ghost">Clear failed</button><button id="clear" class="ghost">Clear done</button></div></aside>
+<div id="full"><aside><div class="side-head"><b>Agents</b><div class="seg" id="tabs" role="group" aria-label="Show" hidden><button data-v="">Agents</button><button data-v="chats">Chats</button></div></div><button id="new-codex" class="ghost">New Codex task…</button><div id="named-status" role="status" aria-live="polite"></div><div id="list"></div><div class="side-foot" id="aside-foot"><button id="clear-failed" class="ghost">Clear failed</button><button id="clear" class="ghost">Clear done</button></div></aside>
 <main><div id="scroll"><div id="page"><header><canvas data-size="38"></canvas><div class="t"><h1 id="title">Agents</h1><div class="status" id="status"></div></div><div class="actions" id="tools"></div></header>
-<p id="brief">Your tasks, while you do something else.</p><div id="body"></div></div></div>
+<p id="brief">Your tasks, while you do something else.</p>
+<section id="codex-create" hidden><form id="codex-form">
+<h2>Start a scoped Codex task</h2><p>Uses Codex authentication in Settings, separately from the foreground OpenAI API. Readiness checks can block unsupported configurations.</p>
+<label for="codex-folder">Project folder (absolute path)</label><input id="codex-folder" placeholder="/Users/you/Projects/example" maxlength="1024" autocomplete="off" spellcheck="false" required>
+<label for="codex-task">Task</label><textarea id="codex-task" maxlength="4000" rows="3" required></textarea>
+<label><input id="codex-confirm" type="checkbox"> I confirm this project scope and authorize this task within its sandbox. Permission expansion still requires approval.</label>
+<div class="actions"><button id="codex-submit" type="submit" class="go">Start Codex task</button><button id="codex-dismiss" type="button">Close</button></div>
+<p id="codex-start-status" role="status" aria-live="polite"></p>
+<div id="codex-pending-review" hidden><label><input id="codex-reviewed" type="checkbox"> I checked Agents and the project for a matching request.</label><button id="codex-unlock" type="button">Unlock form after review</button></div></form></section>
+<div id="body"></div></div></div>
 <footer><div class="ask"><input id="followup" aria-label="Follow up with this agent" placeholder="Ask a follow-up…"><button id="send" class="go" aria-label="Send"></button></div></footer></main></div>
 <script id="orbsrc" type="text/plain">/*ORBS*/</script>
 <script type="module">
@@ -167,6 +179,46 @@ const time=r=>{const s=Math.max(0,Math.floor((r.ended||Date.now()/1000)-(r.start
 const clock=new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}),day=new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric'});
 const begun=r=>{const d=new Date((r.started||r.created)*1000),days=Math.round((new Date().setHours(0,0,0,0)-new Date(d).setHours(0,0,0,0))/864e5);return (days<1?'':days===1?'Yesterday ':day.format(d)+', ')+clock.format(d);};   // calendar days, so 11:50 PM is "Yesterday" ten minutes later
 const command=(action,id,more={})=>post({action,id,...more});
+// CODEX CONTROLS: no automatic dispatch, retry or approval. Keep one unacknowledged submission.
+let codexPending=null; const codexContinuing=new Set();
+function codexCanContinue(r){return !!r&&r.provider==='codex'&&['done','failed','stopped'].includes(r.status)&&!r.cancelRequested&&!r.cancelReviewRequired&&typeof r.folder==='string'&&r.folder.startsWith('/');}
+function codexStartPayload(folder,task,confirmed,known){
+ if(typeof folder!=='string'||typeof task!=='string'||confirmed!==true)throw Error('Confirm the project scope and task first.');
+ folder=folder.trim();task=task.trim();
+ if(!folder.startsWith('/')||folder==='/'||folder.length>1024||/[\x00-\x1f\x7f]/.test(folder)||!task||task.length>4000||task.includes('\0'))throw Error('Enter an absolute project folder and a task of 1–4000 characters.');
+ if(known.some(r=>r.provider==='codex'&&r.folder===folder&&r.brief===task&&(ACTIVE.includes(r.status)||r.cancelReviewRequired)))throw Error('A matching task is active or needs cancellation review. Inspect it before starting another.');
+ return {folder,task,confirmed:true,requestId:crypto.randomUUID()};
+}
+function codexObserve(list){
+ if(codexPending&&list.some(r=>r.provider==='codex'&&r.folder===codexPending.folder&&r.brief===codexPending.task&&r.created>=codexPending.at-2)){
+  codexPending=null;$('codex-submit').disabled=false;$('codex-pending-review').hidden=true;setText($('codex-start-status'),'Task recorded. Select it to inspect its true status.');
+ }
+ for(const r of list)if(r.provider==='codex'&&(ACTIVE.includes(r.status)||r.cancelReviewRequired))codexContinuing.delete(r.id);
+}
+function submitCodexTask(){
+ if(codexPending)return;
+ try{const p=codexStartPayload($('codex-folder').value,$('codex-task').value,$('codex-confirm').checked,rows);
+  codexPending={...p,at:Date.now()/1000};$('codex-submit').disabled=true;$('codex-pending-review').hidden=false;$('codex-reviewed').checked=false;
+  setText($('codex-start-status'),'Request sent. Inspect Agents before retrying; sending is not completion.');command('codex-start','',p);
+ }catch(e){setText($('codex-start-status'),e.message);}
+}
+function reviewCodexPending(){
+ if(!codexPending||$('codex-reviewed').checked!==true)return;
+ codexPending=null;$('codex-submit').disabled=false;$('codex-confirm').checked=false;$('codex-pending-review').hidden=true;
+ setText($('codex-start-status'),'Form unlocked after your review. No retry was sent. Confirm the scope again before a new submission.');
+}
+function continueCodexTask(r,text){
+ if(!r||rows.find(x=>x.id===r.id)!==r||!codexCanContinue(r)||codexContinuing.has(r.id)||typeof text!=='string'||!text.trim()||text.length>4000)return false;
+ codexContinuing.add(r.id);command('followup',r.id,{text:text.trim()});return true;
+}
+function codexScopeCard(r){
+ const box=el('section','codex-scope');box.append(el('div','label','CODEX PROJECT'),el('p','',r.folder||'No confirmed project folder'));
+ const outcome=r.cancelRequested?'Cancellation requested; no interruption has been confirmed.':r.cancelReviewRequired?(r.step||'Inspect the cancellation outcome before continuing.'):r.status==='done'&&!r.verified?'Turn completed; inspect the work before verifying it.':r.status==='stopped'?(r.step||'Stopped; inspect partial changes.'):'Sandbox and approval checks apply to every task.';
+ box.append(el('p','',outcome));
+ if(codexCanContinue(r)){const b=button('Continue scoped task',()=>{if(continueCodexTask(r,$('followup').value)){$('followup').value='';b.disabled=true;}else showNamedStatus('Enter the next instruction in the follow-up field first.');});b.disabled=codexContinuing.has(r.id);box.append(b);}
+ return box;
+}
+// END CODEX CONTROLS
 const showNamedStatus=text=>{clearTimeout(namedTimer);setText($('named-status'),text);if(text)namedTimer=setTimeout(()=>setText($('named-status'),''),6000);};
 const button=(text,fn,cls='')=>{const b=el('button',cls);if(typeof text==='string')b.textContent=text;else b.append(...text);b.onclick=e=>{e.stopPropagation();fn();};return b;};
 const hue=r=>'hue-rotate('+(parseInt(r.id.slice(0,4),16)%90-45)+'deg)';
@@ -345,7 +397,7 @@ function conversationTitle(r){const title=$('title');if(!title.children.length)t
  edit.append(input,button('Save',save,'go'),button('Cancel',cancel));setTimeout(()=>{input.focus();input.select();});return edit;
 }]]);}
 function renderView(){const all=[...rows,...chatRows];if(!all.some(r=>r.id===selected))selected=([...all].sort((a,b)=>(ACTIVE.includes(b.status)-ACTIVE.includes(a.status))||b.created-a.created)[0]?.id)||'';renderList();
- const r=all.find(r=>r.id===selected),scroll=$('scroll'),nearBottom=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;$('followup').disabled=!r||!!r.turns;$('send').disabled=!r||!!r.turns;document.querySelector('header canvas').hidden=!r;
+ const r=all.find(r=>r.id===selected),scroll=$('scroll'),nearBottom=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;$('followup').disabled=!r||!!r.turns||(r.provider==='codex'&&!codexCanContinue(r));$('send').disabled=!r||!!r.turns||(r.provider==='codex'&&(!codexCanContinue(r)||codexContinuing.has(r.id)));document.querySelector('header canvas').hidden=!r;
  if(!r){setText($('title'),'Agents');setText($('brief'),'Your tasks, while you do something else.');$('status').replaceChildren();$('tools').replaceChildren();sync($('body'),[['empty','',()=>{const n=el('div','empty');n.append(el('b','','No agents yet'),el('span','','Ask Atticus for something that takes a while.'));return n;}]]);return;}
  $('page').className=r.turns?'':'s-'+r.status;conversationTitle(r);setText($('brief'),r.brief||'');document.querySelector('header canvas').style.filter=hue(r);
  if(r.turns){if(hovered!==r.id){hovered=r.id;post({action:'hover',id:''});}$('status').dataset.sig='';$('status').replaceChildren(el('span','','Started '+begun(r)));
@@ -353,16 +405,19 @@ function renderView(){const all=[...rows,...chatRows];if(!all.some(r=>r.id===sel
  sync($('body'),r.turns.map((turn,i)=>[String(i),JSON.stringify(turn),()=>{const n=el('section');n.append(entry(r,{kind:'user',lines:[turn.q],tools:[]},i,false,false),markdown(turn.a));return n;}]),true);fit();return;}
  const status=$('status');if(status.dataset.sig!==r.status+r.id){status.dataset.sig=r.status+r.id;status.className='status s-'+r.status;status.replaceChildren(el('i','dot'),el('span','',word(r)),el('span','time-label','· '+time(r)),el('span','time-label started','· Started '+begun(r)));}
  const live=ACTIVE.includes(r.status),files=things(r).some(m=>m.url.startsWith('/'));
- sync($('tools'),[['tools',JSON.stringify([r.id,r.status,files,!!r.directory]),()=>{const a=el('div','actions');a.append(rename(r));if(r.status==='offered')a.append(button('Start',()=>command('start',r.id),'go'));if(live)a.append(button([icon('stop'),'Stop'],()=>command('stop',r.id)));
+ sync($('tools'),[['tools',JSON.stringify([r.id,r.status,files,!!r.directory,!!r.verified,r.journalStatus,!!r.cancelReviewRequired]),()=>{const a=el('div','actions');a.append(rename(r));if(r.cancelReviewRequired)a.append(button('Review cancellation…',()=>command('review-cancel',r.id)));if(r.status==='offered')a.append(button('Start',()=>command('start',r.id),'go'));if(live)a.append(button([icon('stop'),'Stop'],()=>command('stop',r.id)));if(r.status==='done'&&!['written','duplicate'].includes(r.journalStatus))a.append(button(r.verified?'Log verified result…':'Verify result…',()=>command('verify-result',r.id)));
   if(r.directory){const b=button([icon('reveal')],()=>command('reveal',r.id),'ghost');b.title='Show in Finder';b.setAttribute('aria-label','Show in Finder');a.append(b);}return a;}]]);
  setPlaceholder(r);const parts=[],g=groups(r),text=liveText.get(r.id);
+ if(r.provider==='codex')parts.push(['codex-scope',JSON.stringify([r.folder,r.status,r.step,r.cancelRequested,r.cancelReviewRequired,r.verified,codexContinuing.has(r.id)]),()=>codexScopeCard(r)]);
  if(r.target)parts.push(['mini',r.id,()=>mini(r)]);   // a window agent's live window leads the page
  if(r.question)parts.push(['ask',JSON.stringify(r.question),()=>approval(r)]);
  if(live&&!r.question)parts.push(['now',JSON.stringify([state(r),r.note,r.sources,r.plan,r.completed]),()=>{const box=el('div','now'),note=r.status==='running'&&r.note&&r.note===r.step,cur=el('div','current'+(r.status==='running'?' live-text':'')+(note?' md':''));cur.append(note?E.markdown(E.shut(r.note)):state(r));cur.setAttribute('role','status');cur.setAttribute('aria-live','polite');box.append(cur);
   const chips=sourceChips(r,(r.sources||[]).slice(-6));if(chips)box.append(chips);if(r.plan?.length){const plan=el('div','plan');r.plan.forEach((s,i)=>{const bar=el('i',i<(r.completed||0)?'on':'');bar.title=s;plan.append(bar);});box.append(plan);}return box;}]);
- if(r.status==='failed')parts.push(['fail',state(r),()=>{const n=el('div','fail');n.append(el('p','',state(r)),button('Retry',()=>command('start',r.id),'go'));return n;}]);
+ if(r.status==='failed'&&r.provider!=='codex')parts.push(['fail',state(r),()=>{const n=el('div','fail');n.append(el('p','',state(r)),button('Retry',()=>command('start',r.id),'go'));return n;}]);
  if(r.missingConnector)parts.push(['connect',r.missingConnector,()=>{const n=el('div','fail');n.append(el('p','','Needs '+r.missingConnector+'. Connect it in Claude, then retry.'),button('Connect in Claude',()=>command('connect',r.id),'go'));return n;}]);
  const cards=madeCards(r);if(cards)parts.push(['made',JSON.stringify(r.made||r.links),()=>{const n=el('section');n.append(el('div','label','MADE'),cards);return n;}]);
+ const journalMessages={written:'Verified result added to the activity log.',duplicate:'This result is already in the activity log.',disabled:'Verified. Activity logging is off.',not_configured:'Verified. Choose an Obsidian vault in Settings to log it.',excluded:'Verified. Activity excluded by privacy settings.',excluded_unknown_scope:'Verified. Activity skipped because its folder is unknown.',invalid_privacy_settings:'Verified. Check activity privacy settings.',error:'Verified. Activity could not be written; check the vault and retry.',conflict:'Verified. An existing entry differs; it was preserved for review.'};
+ if(r.verified&&journalMessages[r.journalStatus])parts.push(['journal',r.journalStatus,()=>el('p','',journalMessages[r.journalStatus])]);
  const body=r.status==='done'?answer(r):'';
  if(text&&!body){const said=E.shut(text);parts.push(['writing',said,()=>{const n=el('section','writing');n.append(el('div','label','WRITING…'),markdown(said));return n;}]);}   // an unclosed $math, **bold or `code waits, never shown as symbols
  if(body)parts.push(['result',body+r.cost,()=>{const n=el('section'),card=markdown(body);if(r.changes&&!body.includes(r.changes)){const changes=el('div','changes');changes.append(E.markdown(r.changes));card.append(changes);}card.append(el('div','cost',(r.cost>0?apiCost(r.cost)+' · ':'')+time(r)));n.append(el('div','label','RESULT'),card);return n;}]);
@@ -378,8 +433,8 @@ let fitting=0,later=0;function fit(now,keep){if(mode==='shelf'){const h=$('shelf
   const id=mode==='shelf'?previewId():'',n=mode==='view'?document.querySelector('#body .mini'):id&&(id===expanded?chipOf(id)?.querySelector('.mini'):chipOf(id)?.querySelector('.thumb'));
   if(id!==previewing&&mode==='shelf'){previewing=id;post({action:'hover',id});}
   if(n&&!moving){const r=n.getBoundingClientRect();post({action:'miniRect',rect:[r.x,r.y,r.width,r.height],clip:[r.x,r.y,r.width,r.height],opacity:1,fill:n.classList.contains('thumb')});}else post({action:'miniRect',rect:[0,0,0,0],clip:[0,0,0,0],opacity:0});});}
-window.agents={mode(value){mode=value;document.body.classList.toggle('view',mode==='view');mode==='view'?renderView():renderShelf();},list(value){rows=value;listed=true;for(const r of rows)if(fin(r)&&!onScreen.has(r.id))onScreen.set(r.id,age(r));mode==='view'?renderView():renderShelf();},chats(value){chatRows=value;if(mode==='view')renderView();},named(value){namedRows=value;if(mode==='view')renderList();},namedReply(value){showNamedStatus(value);},
- state(r){const i=rows.findIndex(x=>x.id===r.id),old=rows[i],committed=i>=0&&old.textVersion!==r.textVersion;if(i<0)rows.unshift(r);else rows[i]=r;if(committed||r.status!=='running')liveText.delete(r.id);
+window.agents={mode(value){mode=value;document.body.classList.toggle('view',mode==='view');mode==='view'?renderView():renderShelf();},list(value){rows=value;codexObserve(rows);listed=true;for(const r of rows)if(fin(r)&&!onScreen.has(r.id))onScreen.set(r.id,age(r));mode==='view'?renderView():renderShelf();},chats(value){chatRows=value;if(mode==='view')renderView();},named(value){namedRows=value;if(mode==='view')renderList();},namedReply(value){showNamedStatus(value);},
+ state(r){const i=rows.findIndex(x=>x.id===r.id),old=rows[i],committed=i>=0&&old.textVersion!==r.textVersion;if(i<0)rows.unshift(r);else rows[i]=r;codexObserve([r]);if(committed||r.status!=='running')liveText.delete(r.id);
   if(!fin(r))onScreen.delete(r.id);else if(!old||!fin(old)||old.seenAt!==r.seenAt)onScreen.set(r.id,age(r));   // just finished or its card just shown: a fresh 10 minutes
   if(old&&!fin(old)&&fin(r)){dismissed.delete(r.id);if(over?.dataset.id===r.id)held=r.id;}   // a finish is news: hidden while it worked, or cleared before a follow-up, it shows again done
   const ask=r.status==='needs-you'&&r.question&&attention.get(r.id)!==JSON.stringify(r.question);if(ask){attention.set(r.id,JSON.stringify(r.question));dismissed.delete(r.id);}
@@ -399,7 +454,11 @@ window.agents={mode(value){mode=value;document.body.classList.toggle('view',mode
  text({id,text}){liveText.set(id,(liveText.get(id)||'')+text);if(mode==='view'&&selected===id&&!textFrame)textFrame=requestAnimationFrame(()=>{textFrame=0;if(mode==='view')renderView();});},select(id){selected=id;if(chatRows.some(r=>r.id===id))tab='chats';else if(rows.some(r=>r.id===id))tab='';renderView();},visible(value){visible=value;},
  resume(){if(mode==='shelf'){visible=true;previewing='';renderShelf();}},
  mini(value){const id=mode==='view'?selected:previewId(),n=document.querySelector('[data-mini="'+id+'"]');if(n){n.dataset.live=value.live?'true':'';setText(n,value.live?'':value.window||value.app||'Window');}fit();}};
-$('send').append(icon('send'));$('send').onclick=()=>{const text=$('followup').value.trim();if(!text||!selected||chatRows.some(r=>r.id===selected))return;command('followup',selected,{text});$('followup').value='';};
+$('new-codex').onclick=()=>{$('codex-create').hidden=false;$('codex-folder').focus();};
+$('codex-dismiss').onclick=()=>{$('codex-create').hidden=true;};
+$('codex-unlock').onclick=reviewCodexPending;
+$('codex-form').onsubmit=e=>{e.preventDefault();submitCodexTask();};
+$('send').append(icon('send'));$('send').onclick=()=>{const text=$('followup').value.trim();if(!text||!selected||chatRows.some(r=>r.id===selected))return;const r=rows.find(x=>x.id===selected);if(r?.provider==='codex'){if(!continueCodexTask(r,text))return;$('send').disabled=true;}else command('followup',selected,{text});$('followup').value='';};
 $('followup').onkeydown=e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();$('send').click();}};$('clear').onclick=()=>command('clear');$('clear-failed').onclick=()=>command('clear-failed');
 $('tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;tab=b.dataset.v;post({action:'tab',value:tab});renderList();};
 document.addEventListener('keydown',e=>{const fallback=!e.isComposing&&(e.key==='Escape'||!e.target.closest('button,input,textarea,select,a,[contenteditable=true]')),card=mode==='view'&&fallback&&document.querySelector('.pk');   // the view's card answers ↩ and esc, like the box's
