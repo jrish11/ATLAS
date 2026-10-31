@@ -11,6 +11,11 @@ static class NativeApprovalTests
     static void Require(bool value, string name) { if (!value) throw new Exception("Failed: " + name); }
     static ApprovalRequest Request(ApprovalSession s, string nonce, string payload = "{\"id\":\"fixture\",\"method\":\"item/fileChange/requestApproval\",\"params\":{\"threadId\":\"thread\",\"turnId\":\"turn\"}}") => new(s.Id, nonce, s.Task, s.Project, s.Scope, payload, Hash(payload));
 
+    [StructLayout(LayoutKind.Sequential)] struct FixtureSecurity { public int Length; public IntPtr Descriptor; public int Inherit; }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern SafeFileHandle CreateEventW(ref FixtureSecurity attributes, bool manualReset, bool initialState, string name);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern uint WaitForSingleObject(SafeFileHandle handle, uint milliseconds);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern uint GetShortPathNameW(string path, StringBuilder shortPath, uint length);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -67,6 +72,13 @@ static class NativeApprovalTests
 
     static void Main(string[] args)
     {
+        Require(!NativeOwnerBroker.Enabled, "production broker remains disabled");
+        try { NativeOwnerBroker.RunAsync(null, "fixture", "unused", "unused", CancellationToken.None).GetAwaiter().GetResult(); throw new Exception("Disabled broker started"); }
+        catch (InvalidOperationException) { }
+        byte[] digestFixture = Encoding.UTF8.GetBytes("fixture");
+        string digest = Convert.ToHexString(SHA256.HashData(digestFixture)).ToLowerInvariant();
+        Require(PinnedCodexExecutable.MatchesDigest(new MemoryStream(digestFixture), digest), "official digest verification primitive");
+        Require(!PinnedCodexExecutable.MatchesDigest(new MemoryStream(Encoding.UTF8.GetBytes("tampered")), digest), "tampered digest rejected");
         var now = DateTimeOffset.FromUnixTimeSeconds(1000);
         ulong ticks = 1000;
         var project = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "atlas-fixture"));
@@ -176,30 +188,39 @@ static class NativeApprovalTests
                 info.ArgumentList.Add(Path.GetFullPath(args[2]));
                 info.Environment["ATLAS_FIXTURE_PROFILE"] = "atlas_" + Guid.NewGuid().ToString("N");
                 info.Environment["ATLAS_FIXTURE_PROJECT"] = selected;
-                info.Environment["ATLAS_FIXTURE_MODE"] = "delayed_read";
+                info.Environment["ATLAS_FIXTURE_MODE"] = "synchronized_read";
                 info.Environment["ATLAS_FIXTURE_MARKER"] = marker;
                 var guard = WindowsProjectGuard.Open(selected);
-                using var provider = new CodexProcessChannel(info);
+                using var writerReached = new ManualResetEventSlim(false);
+                using var proceed = new ManualResetEventSlim(false);
+                int checks = 0;
+                using var provider = new CodexProcessChannel(info, () => { writerReached.Set(); if (!proceed.Wait(TimeSpan.FromSeconds(5))) throw new InvalidOperationException("Fixture release timed out."); });
                 bool fixtureMutated = false; Exception fixtureFailure = null;
                 try
                 {
-                    provider.Send(new { data = new string('x', 900_000) });
+                    provider.Send(new { data = new string('x', 65_536) });
                     object frame = frameKind == "approval" ? new { id = "fixture", result = new { decision = "accept" } } : new { id = "fixture", method = frameKind };
-                    Require(owner.CommitIfActive(CancellationToken.None, () => provider.Send(frame, CancellationToken.None, owner.RevocationToken, () => NativeCodexTurn.DispatchAuthority(owner, guard))), "project-bound frame queued");
+                    Require(owner.CommitIfActive(CancellationToken.None, () => provider.Send(frame, CancellationToken.None, owner.RevocationToken, () => { Interlocked.Increment(ref checks); return NativeCodexTurn.DispatchAuthority(owner, guard); })), "project-bound frame queued");
+                    var ack = provider.ReceiveAsync(TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult();
+                    Require(ack.TryGetProperty("fixture", out var ackType) && ackType.GetString() == "filler-consumed", "fake child consumed filler");
+                    Require(writerReached.Wait(TimeSpan.FromSeconds(5)), "writer reached privileged frame");
                     fixtureMutated = TrySetJunction(selected, target);
                     if (!fixtureMutated) { guard.Dispose(); Console.WriteLine("OS denied in-place mutation; checking disposed project identity instead for " + frameKind); }
-                    System.Threading.Thread.Sleep(1800);
+                    proceed.Set();
+                    try { provider.ReceiveAsync(TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult(); throw new Exception("Provider unexpectedly produced output"); }
+                    catch (IOException) { }
+                    Require(Volatile.Read(ref checks) >= 2, "writer rechecked project after mutation");
                     Require(!File.Exists(marker), "changed project prevented " + frameKind);
                 }
                 catch (Exception ex) { fixtureFailure = ex; throw; }
                 finally
                 {
-                    provider.Dispose(); guard.Dispose();
+                    proceed.Set(); provider.Dispose(); guard.Dispose();
                     if (fixtureMutated) CleanupWithoutMasking(() => RemoveFixtureJunction(selected, target, scratch), fixtureFailure);
                     if (File.Exists(marker)) File.Delete(marker);
                 }
             }
-            foreach (string mode in new[] { "ok", "unsafe", "stale", "cancel", "duplicate", "conflict", "late", "duplicate_cancel" })
+            foreach (string mode in new[] { "ok", "unsafe", "weak_sandbox", "stale", "cancel", "duplicate", "conflict", "late", "duplicate_cancel" })
             {
                 using var guard = WindowsProjectGuard.Open(scratch);
                 var owner = new ApprovalSession("fixture task", guard.Project, "workspace-write; network-disabled", () => DateTimeOffset.UtcNow, TimeSpan.FromMinutes(2));
@@ -220,14 +241,76 @@ static class NativeApprovalTests
                     if (mode == "stale") Require(!asked && result.Status == "approval denied", "stale provider turn denied");
                     if (mode == "cancel" || mode == "duplicate_cancel") Require(asked && promptCount == 1 && result.Status.StartsWith("stopped"), "cancel during native prompt");
                     if (mode == "late") Require(!asked && result.Status == "completed", "late request not prompted");
-                    if (mode == "unsafe" || mode == "duplicate" || mode == "conflict") throw new Exception("Unsafe provider input accepted");
+                    if (mode == "unsafe" || mode == "weak_sandbox" || mode == "duplicate" || mode == "conflict") throw new Exception("Unsafe provider input accepted");
                 }
-                catch (InvalidDataException) when (mode == "unsafe") { Require(!asked, "unsafe provider not prompted"); }
+                catch (InvalidDataException) when (mode == "unsafe" || mode == "weak_sandbox") { Require(!asked, "unsafe provider not prompted"); }
                 catch (InvalidDataException) when (mode == "duplicate" || mode == "conflict") { Require(promptCount == 1, "duplicate provider request not reprompted"); }
             }
         }
         catch (Exception ex) { scratchFailure = ex; throw; }
         finally { CleanupWithoutMasking(() => Directory.Delete(scratch, true), scratchFailure); }
+        // Windows CRT quoting round-trips spaces, quotes and trailing slashes.
+        {
+            var info = new System.Diagnostics.ProcessStartInfo(Path.GetFullPath(args[0])) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true };
+            info.ArgumentList.Add(Path.GetFullPath(args[2]));
+            string[] expected = { "two words", "quoted\"word", @"tail\" };
+            foreach (string value in expected) info.ArgumentList.Add(value);
+            info.Environment["ATLAS_FIXTURE_PROFILE"] = "atlas_" + Guid.NewGuid().ToString("N");
+            info.Environment["ATLAS_FIXTURE_PROJECT"] = project; info.Environment["ATLAS_FIXTURE_MODE"] = "argv_echo";
+            using var provider = new CodexProcessChannel(info);
+            var reply = provider.ReceiveAsync(TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult();
+            Require(reply.GetProperty("arguments").EnumerateArray().Select(x => x.GetString()).SequenceEqual(expected), "Windows command argument quoting");
+        }
+        // An inheritable parent event must not be among the explicitly passed
+        // standard handles, even when the parent exposes its numeric value.
+        {
+            var attr = new FixtureSecurity { Length = Marshal.SizeOf<FixtureSecurity>(), Inherit = 1 };
+            using var canary = CreateEventW(ref attr, true, false, null);
+            Require(!canary.IsInvalid, "create inheritable canary event");
+            var info = new System.Diagnostics.ProcessStartInfo(Path.GetFullPath(args[0])) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true };
+            info.ArgumentList.Add(Path.GetFullPath(args[2]));
+            info.Environment["ATLAS_FIXTURE_PROFILE"] = "atlas_" + Guid.NewGuid().ToString("N");
+            info.Environment["ATLAS_FIXTURE_PROJECT"] = project;
+            info.Environment["ATLAS_FIXTURE_MODE"] = "handle_canary";
+            info.Environment["ATLAS_CANARY_HANDLE"] = canary.DangerousGetHandle().ToInt64().ToString(System.Globalization.CultureInfo.InvariantCulture);
+            using var provider = new CodexProcessChannel(info);
+            var reply = provider.ReceiveAsync(TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult();
+            Require(reply.GetProperty("canary_attempted").GetBoolean(), "fake child attempted inherited canary");
+            Require(WaitForSingleObject(canary, 100) == 0x102, "unlisted inheritable event absent from child");
+        }
+        // A pre-resume failure must terminate the suspended child before its
+        // first instruction; its marker must never be created.
+        {
+            string marker = Path.Combine(root, "atlas-suspended-marker-" + Guid.NewGuid().ToString("N"));
+            var info = new System.Diagnostics.ProcessStartInfo(Path.GetFullPath(args[0])) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true };
+            info.ArgumentList.Add(Path.GetFullPath(args[2]));
+            info.Environment["ATLAS_FIXTURE_PROFILE"] = "atlas_" + Guid.NewGuid().ToString("N");
+            info.Environment["ATLAS_FIXTURE_PROJECT"] = project;
+            info.Environment["ATLAS_FIXTURE_MODE"] = "start_marker";
+            info.Environment["ATLAS_FIXTURE_MARKER"] = marker;
+            bool failed = false;
+            try { using var unexpected = new CodexProcessChannel(info, failBeforeResumeForTest: true); }
+            catch (InvalidOperationException) { failed = true; }
+            Require(failed, "failure before resume reported");
+            System.Threading.Thread.Sleep(300);
+            Require(!File.Exists(marker), "suspended child never started on containment failure");
+            if (File.Exists(marker)) File.Delete(marker);
+        }
+        // Fake provider launches a sleeping fake descendant; closing the job
+        // must stop it. This does not test escape during the pre-assignment race.
+        {
+            var info = new System.Diagnostics.ProcessStartInfo(Path.GetFullPath(args[0])) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true };
+            info.ArgumentList.Add(Path.GetFullPath(args[2]));
+            info.Environment["ATLAS_FIXTURE_PROFILE"] = "atlas_" + Guid.NewGuid().ToString("N");
+            info.Environment["ATLAS_FIXTURE_PROJECT"] = project;
+            info.Environment["ATLAS_FIXTURE_MODE"] = "spawn_child";
+            using var provider = new CodexProcessChannel(info);
+            var notice = provider.ReceiveAsync(TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult();
+            int childPid = notice.GetProperty("child_pid").GetInt32();
+            using var descendant = System.Diagnostics.Process.GetProcessById(childPid);
+            provider.Dispose();
+            Require(descendant.WaitForExit(5000), "job terminates fake descendant");
+        }
         // Fill a never-reading child's pipe with one large queued frame. The
         // authority lock and process teardown must remain independently usable.
         {

@@ -6,22 +6,47 @@ import sys
 profile = os.environ['ATLAS_FIXTURE_PROFILE']
 project = os.environ['ATLAS_FIXTURE_PROJECT']
 mode = os.environ.get('ATLAS_FIXTURE_MODE', 'ok')
+if mode == 'argv_echo':
+    print(json.dumps({'arguments': sys.argv[1:]}), flush=True)
+    raise SystemExit(0)
+if mode == 'handle_canary':
+    import ctypes
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.SetEvent.argtypes = [ctypes.c_void_p]
+    kernel.SetEvent(ctypes.c_void_p(int(os.environ['ATLAS_CANARY_HANDLE'])))
+    print(json.dumps({'canary_attempted': True}), flush=True)
+    raise SystemExit(0)
+if mode == 'start_marker':
+    with open(os.environ['ATLAS_FIXTURE_MARKER'], 'w', encoding='utf-8') as marker:
+        marker.write('started')
+    raise SystemExit(0)
+if mode == 'spawn_child':
+    import subprocess
+    import time
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], close_fds=True)
+    print(json.dumps({'child_pid': child.pid}), flush=True)
+    time.sleep(60)
+    raise SystemExit(0)
 if mode == 'never_read':
     import time
     time.sleep(30)
     raise SystemExit(0)
-if mode == 'delayed_read':
+if mode in ('delayed_read', 'synchronized_read'):
     import time
-    time.sleep(1)
+    if mode == 'delayed_read':
+        time.sleep(1)
     for line in sys.stdin:
         value = json.loads(line)
+        if mode == 'synchronized_read' and 'data' in value:
+            print(json.dumps({'fixture': 'filler-consumed'}), flush=True)
+            continue
         if value.get('result', {}).get('decision') == 'accept' or value.get('method') in ('thread/start', 'turn/start'):
             with open(os.environ['ATLAS_FIXTURE_MARKER'], 'w', encoding='utf-8') as marker:
                 marker.write('unexpected accept')
             break
     raise SystemExit(0)
 features = {name: False for name in ('hooks', 'plugins', 'apps', 'skill_search', 'remote_plugin', 'skill_mcp_dependency_install', 'shell_snapshot')}
-config = {'mcp_servers': {}, 'apps': {'_default': {'enabled': False}}, 'default_permissions': profile,
+config = {'windows': {'sandbox': 'unelevated' if mode == 'weak_sandbox' else 'mxc'}, 'mcp_servers': {}, 'apps': {'_default': {'enabled': False}}, 'default_permissions': profile,
           'permissions': {profile: {'filesystem': {':minimal': 'read', ':workspace_roots': 'write'}, 'network': {'enabled': mode == 'unsafe'}}},
           'features': features, 'web_search': 'disabled', 'allow_login_shell': False,
           'shell_environment_policy': {'inherit': 'none', 'ignore_default_excludes': False}}

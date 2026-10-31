@@ -11,18 +11,18 @@ internal sealed class CodexProcessChannel : IDisposable
     private const int MaxLine = 1_048_576;
     private static readonly TimeSpan WriteDeadline = TimeSpan.FromSeconds(2);
     private sealed record Outbound(byte[] Bytes, CancellationToken Cancellation, CancellationToken Revocation, CancellationTokenRegistration Registration, CancellationTokenRegistration RevocationRegistration, Func<TimeSpan> AuthorityRemaining);
-    private readonly Process process;
+    private readonly ContainedProviderProcess child;
     private readonly Action beforeGrantWriteForTest;
     private readonly Channel<JsonElement> queue = Channel.CreateBounded<JsonElement>(new BoundedChannelOptions(256) { SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait });
     private readonly Channel<Outbound> outgoing = Channel.CreateBounded<Outbound>(new BoundedChannelOptions(8) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
     private readonly CancellationTokenSource stop = new();
     private int aborted;
 
-    internal CodexProcessChannel(ProcessStartInfo info, Action beforeGrantWriteForTest = null)
+    internal CodexProcessChannel(ProcessStartInfo info, Action beforeGrantWriteForTest = null, bool failBeforeResumeForTest = false)
     {
         if (info.UseShellExecute || !info.RedirectStandardInput || !info.RedirectStandardOutput || !Path.IsPathFullyQualified(info.FileName)) throw new InvalidOperationException("Invalid provider process configuration.");
         this.beforeGrantWriteForTest = beforeGrantWriteForTest;
-        process = Process.Start(info) ?? throw new InvalidOperationException("Provider could not start.");
+        child = ContainedProviderProcess.Start(info, failBeforeResumeForTest);
         _ = Task.Run(ReadLoop);
         _ = Task.Run(WriteLoop);
     }
@@ -31,7 +31,7 @@ internal sealed class CodexProcessChannel : IDisposable
         Exception failure = null;
         try
         {
-            using var buffer = new MemoryStream(); var stream = process.StandardOutput.BaseStream; byte[] one = new byte[1];
+            using var buffer = new MemoryStream(); var stream = child.Output; byte[] one = new byte[1];
             while (await stream.ReadAsync(one.AsMemory(0, 1), stop.Token) != 0)
             {
                 if (one[0] == (byte)'\n')
@@ -86,8 +86,8 @@ internal sealed class CodexProcessChannel : IDisposable
                     deadline.Token.ThrowIfCancellationRequested();
                     // WaitAsync bounds our wait even if an OS stream ignores its
                     // token; Abort closes the process/pipe without a send lock.
-                    await process.StandardInput.BaseStream.WriteAsync(item.Bytes.AsMemory(), deadline.Token).AsTask().WaitAsync(deadline.Token);
-                    await process.StandardInput.BaseStream.FlushAsync(deadline.Token).WaitAsync(deadline.Token);
+                    await child.Input.WriteAsync(item.Bytes.AsMemory(), deadline.Token).AsTask().WaitAsync(deadline.Token);
+                    await child.Input.FlushAsync(deadline.Token).WaitAsync(deadline.Token);
                 }
                 finally { item.Registration.Dispose(); item.RevocationRegistration.Dispose(); }
             }
@@ -107,7 +107,7 @@ internal sealed class CodexProcessChannel : IDisposable
         outgoing.Writer.TryComplete();
         queue.Writer.TryComplete();
         stop.Cancel();
-        try { if (!process.HasExited) process.Kill(true); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
+        child.Dispose(); // Closing the pre-assigned job requests descendant termination.
     }
     public void Dispose() { Abort(); }
 }

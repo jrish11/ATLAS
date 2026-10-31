@@ -45,7 +45,7 @@ internal sealed class NativeCodexTurn
         var info = new ProcessStartInfo(executable) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true, StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = new UTF8Encoding(false) };
         foreach (var a in new[] { "app-server", "--disable", "hooks", "--disable", "plugins", "--disable", "apps", "--disable", "skill_search", "--disable", "remote_plugin", "--disable", "skill_mcp_dependency_install", "--disable", "shell_snapshot" }) info.ArgumentList.Add(a);
         string permission = "permissions." + profile;
-        foreach (var setting in new[] { permission + ".filesystem={\":minimal\"=\"read\",\":workspace_roots\"=\"write\"}", permission + ".network.enabled=false", "default_permissions=\"" + profile + "\"", "allow_login_shell=false", "shell_environment_policy.inherit=\"none\"", "shell_environment_policy.ignore_default_excludes=false", "web_search=\"disabled\"", "apps._default.enabled=false" })
+        foreach (var setting in new[] { permission + ".filesystem={\":minimal\"=\"read\",\":workspace_roots\"=\"write\"}", permission + ".network.enabled=false", "default_permissions=\"" + profile + "\"", "allow_login_shell=false", "shell_environment_policy.inherit=\"none\"", "shell_environment_policy.ignore_default_excludes=false", "web_search=\"disabled\"", "apps._default.enabled=false", "windows.sandbox=\"mxc\"" })
         { info.ArgumentList.Add("-c"); info.ArgumentList.Add(setting); }
         // Start from an allowlist, never from the parent's credential, proxy,
         // base-URL, SSH agent, or arbitrary executable-search environment.
@@ -125,6 +125,9 @@ internal sealed class NativeCodexTurn
     private async Task<string> PreflightAsync(CancellationToken cancellation)
     {
         var config = Required(await RequestAsync("config/read", new { cwd = project.Project, includeLayers = false }, cancellation), "config", JsonValueKind.Object);
+        // Explicit MXC must not silently fall back to a weaker implementation.
+        // This configuration echo is not proof of OS enforcement.
+        Require(RequiredString(Required(config, "windows", JsonValueKind.Object), "sandbox") == "mxc");
         Require(!Required(config, "mcp_servers", JsonValueKind.Object).EnumerateObject().Any());
         var inventory = await RequestAsync("mcpServerStatus/list", new { detail = "toolsAndAuthOnly", limit = 100 }, cancellation);
         Require(Required(inventory, "data", JsonValueKind.Array).GetArrayLength() == 0 && NullOrMissing(inventory, "nextCursor"));

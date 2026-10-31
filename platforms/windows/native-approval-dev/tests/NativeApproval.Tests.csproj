@@ -14,6 +14,9 @@
     <Compile Include="../WindowsProjectGuard.cs" Link="WindowsProjectGuard.cs" />
     <Compile Include="../CodexProcessChannel.cs" Link="CodexProcessChannel.cs" />
     <Compile Include="../NativeCodexTurn.cs" Link="NativeCodexTurn.cs" />
+    <Compile Include="../NativeOwnerBroker.cs" Link="NativeOwnerBroker.cs" />
+    <Compile Include="../WindowsProcessJob.cs" Link="WindowsProcessJob.cs" />
+    <Compile Include="../ContainedProviderProcess.cs" Link="ContainedProviderProcess.cs" />
     <Compile Include="NativeApprovalTests.cs" />
   </ItemGroup>
 </Project>
