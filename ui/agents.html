@@ -190,7 +190,7 @@ function codexStartPayload(folder,task,confirmed,known){
  return {folder,task,confirmed:true,requestId:crypto.randomUUID()};
 }
 function codexObserve(list){
- if(codexPending&&list.some(r=>r.provider==='codex'&&r.folder===codexPending.folder&&r.brief===codexPending.task&&r.created>=codexPending.at-2)){
+ if(codexPending&&list.some(r=>r.provider==='codex'&&r.codexClientRequest===codexPending.requestId)){
   codexPending=null;$('codex-submit').disabled=false;$('codex-pending-review').hidden=true;setText($('codex-start-status'),'Task recorded. Select it to inspect its true status.');
  }
  for(const r of list)if(r.provider==='codex'&&(ACTIVE.includes(r.status)||r.cancelReviewRequired))codexContinuing.delete(r.id);

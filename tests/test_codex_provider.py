@@ -234,6 +234,54 @@ class CodexProviderTests(unittest.TestCase):
             self.assertNotIn('fixture-openai-key',str(calls[-1][0]))
             resolver.assert_called_once_with()
 
+    def test_replaced_project_during_preflight_never_dispatches_turn(self):
+        for trigger in ('model/list','thread/start'):
+            with self.subTest(trigger=trigger), tempfile.TemporaryDirectory(dir='/tmp') as d:
+                root=Path(d).resolve()/'project';root.mkdir();sent=[]
+                class ReplaceDuringPreflight(CodexProvider):
+                    def _send(self,payload):
+                        result=super()._send(payload)
+                        sent.append(payload.get('method'));return result
+                    def _request(self,method,params,timeout=30):
+                        result=super()._request(method,params,timeout)
+                        if method == trigger:
+                            root.rename(root.parent/'old');root.mkdir()
+                        return result
+                provider=ReplaceDuringPreflight(popen=fake_spawn)
+                with self.assertRaisesRegex(ProviderError,'project folder changed'):
+                    provider.run(str(root),'fixture')
+                self.assertNotIn('turn/start',sent)
+                if trigger == 'model/list': self.assertNotIn('thread/start',sent)
+
+    def test_replaced_project_after_preflight_blocks_skills_relaunch(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as d:
+            root=Path(d).resolve()/'project';root.mkdir();launches=[]
+            def spawn(*args,**kw): launches.append(1);return fake_spawn(*args,**kw)
+            class ReplaceAfterPreflight(CodexProvider):
+                def _preflight(self,cwd):
+                    root.rename(root.parent/'old');root.mkdir()
+                    return ['/tmp/fixture/SKILL.md']
+            with self.assertRaisesRegex(ProviderError,'project folder changed'):
+                ReplaceAfterPreflight(popen=spawn).run(str(root),'fixture')
+            self.assertEqual(len(launches),1)
+
+    def test_cancel_during_preflight_blocks_skills_relaunch_and_turn(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as d:
+            sent=[];launches=[]
+            def spawn(*args,**kw): launches.append(1);return fake_spawn(*args,**kw)
+            class CancelDuringPreflight(CodexProvider):
+                def _send(self,payload):
+                    result=super()._send(payload)
+                    sent.append(payload.get('method'));return result
+                def _preflight(self,cwd):
+                    self.interrupt()
+                    return ['/tmp/fixture/SKILL.md']
+            provider=CancelDuringPreflight(popen=spawn)
+            with self.assertRaisesRegex(ProviderError,'cancelled before launch'):
+                provider.run(d,'fixture')
+            self.assertEqual(len(launches),1)
+            self.assertNotIn('thread/start',sent);self.assertNotIn('turn/start',sent)
+
     def test_missing_key_fails_before_starting_server(self):
         from unittest.mock import Mock
         spawn=Mock()
@@ -254,19 +302,19 @@ class AgentManagerIntegrationTests(unittest.TestCase):
         from unittest.mock import patch
         class FakeProvider:
             def __init__(self, emit, **kwargs): self.emit = emit
-            def run(self, cwd, task, thread_id=None):
+            def run(self, cwd, task, thread_id=None, **kwargs):
                 self.emit({'type':'thread', 'id':'thread-1'})
                 self.emit({'type':'turn', 'id':'turn-1'})
                 self.emit({'type':'text', 'text':'fixture progress'})
                 return {'status':'done', 'result':'Completed fixture.'}
             def interrupt(self): pass
-        with tempfile.TemporaryDirectory() as d, patch.object(atticus, 'DIR', d), patch.object(atticus, 'CODEX_AGENT_READY', True), \
+        with tempfile.TemporaryDirectory() as d, patch.object(atticus, 'DIR', d), patch.object(atticus, 'trusted_native_context_parent', return_value=True), patch.object(atticus, 'codex_scoped_readiness', return_value=(True,'')), patch.object(atticus, 'codex_project_matches', return_value=True), \
              patch.object(atticus, 'close_agent_window'), patch.object(atticus.codex_provider, 'CodexProvider', FakeProvider), \
              patch.object(atticus, 'pref', side_effect=lambda k, default: False if k == 'learn' else default):
             events = []
             manager = atticus.Agents(emit=events.append)
             self.addCleanup(manager.close)
-            manager.command({'action':'codex-start', 'folder':d, 'task':'Review fixture'})
+            manager.command({'action':'codex-start', 'folder':d, 'task':'Review fixture','confirmed':True,'requestId':'12345678-1234-4123-8123-123456789abc','folderIdentity':{'device':1,'inode':2}})
             deadline = time.monotonic() + 3
             while time.monotonic() < deadline:
                 with manager.lock:
@@ -285,17 +333,17 @@ class AgentManagerIntegrationTests(unittest.TestCase):
         from unittest.mock import patch
         class FakeProvider:
             def __init__(self, emit, approval_handler, **kwargs): self.emit=emit; self.approval=approval_handler
-            def run(self,cwd,task,thread_id=None):
+            def run(self,cwd,task,thread_id=None,**kwargs):
                 self.emit({'type':'thread','id':'thread-1'}); self.emit({'type':'turn','id':'turn-1'})
                 result=self.approval({'id':'rpc-1','method':'item/commandExecution/requestApproval','params':{'threadId':'thread-1','turnId':'turn-1','command':'fixture'}})
                 return {'status':'done' if result=='accept' else 'failed','result':'Fixture result'}
             def interrupt(self): pass
             def close(self): pass
-        with tempfile.TemporaryDirectory() as d, patch.object(atticus,'DIR',d), patch.object(atticus,'CODEX_AGENT_READY',True), \
+        with tempfile.TemporaryDirectory() as d, patch.object(atticus,'DIR',d), patch.object(atticus,'trusted_native_context_parent',return_value=True), patch.object(atticus,'codex_scoped_readiness',return_value=(True,'')), patch.object(atticus,'codex_project_matches',return_value=True), \
              patch.object(atticus,'close_agent_window'), patch.object(atticus.codex_provider,'CodexProvider',FakeProvider), \
              patch.object(atticus,'pref',side_effect=lambda k,default:False if k=='learn' else default):
             events=[];manager=atticus.Agents(emit=events.append);self.addCleanup(manager.close)
-            manager.command({'action':'codex-start','folder':d,'task':'Review fixture'})
+            manager.command({'action':'codex-start','folder':d,'task':'Review fixture','confirmed':True,'requestId':'12345678-1234-4123-8123-123456789abc','folderIdentity':{'device':1,'inode':2}})
             deadline=time.monotonic()+3
             while time.monotonic()<deadline:
                 with manager.lock:
@@ -403,14 +451,14 @@ class ProjectRoutingTests(unittest.TestCase):
     def test_unresolved_codex_handoff_never_falls_back_to_claude(self):
         import atticus
         from unittest.mock import patch
-        with tempfile.TemporaryDirectory() as d, patch.object(atticus, 'DIR', d), patch.object(atticus, 'close_agent_window'), patch.object(atticus, 'CODEX_AGENT_READY', True):
+        with tempfile.TemporaryDirectory() as d, patch.object(atticus, 'DIR', d), patch.object(atticus, 'close_agent_window'), patch.object(atticus, 'trusted_native_context_parent', return_value=True), patch.object(atticus, 'codex_scoped_readiness', return_value=(True,'')), patch.object(atticus, 'codex_project_matches', return_value=True):
             launched = []
             manager = atticus.Agents(emit=lambda e: None, launch=lambda row: launched.append(row))
             self.addCleanup(manager.close)
             row = manager.prepare({'title':'review','brief':'review','request':'Have Codex review unknown'})
             manager.start(row['id'])
             self.assertEqual(row['status'], 'failed')
-            self.assertIn('project folder', row['result'])
+            self.assertIn('confirmed native project form', row['result'])
             self.assertEqual(launched, [])
 
     def test_live_agent_is_disabled_until_approval_gate_is_ready(self):
@@ -421,9 +469,7 @@ class ProjectRoutingTests(unittest.TestCase):
             manager = atticus.Agents(emit=lambda e: None)
             self.addCleanup(manager.close)
             manager.command({'action':'codex-start', 'folder':d, 'task':'review'})
-            row = next(iter(manager.rows.values()))
-            self.assertEqual(row['status'], 'failed')
-            self.assertIn('approval controls', row['result'])
+            self.assertFalse(manager.rows)
             provider.assert_not_called()
 
 if __name__ == '__main__': unittest.main()

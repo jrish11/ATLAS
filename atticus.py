@@ -4966,9 +4966,37 @@ def routine_model(mode):
     return 'haiku' if mode == 'cheapest' else work_model()
 
 
-# Codex has not yet been connected to Atticus's full approval gate, including MCP tools.
-# Keep live launches disabled until those boundaries are implemented and verified.
-CODEX_AGENT_READY = False
+# Only versions exercised against the effective restricted configuration are allowed.
+# CodexProvider.run rechecks effective MCP/apps/skills/hooks/read/network boundaries,
+# ChatGPT account and the account-default model before starting any turn.
+CODEX_VERIFIED_CLI_VERSIONS = frozenset({'0.155.1'})
+
+
+def codex_project_matches(folder, identity):
+    if not isinstance(identity, dict) or set(identity) != {'device', 'inode'} or any(type(identity[k]) is not int for k in identity): return False
+    try:
+        info = os.stat(folder, follow_symlinks=False)
+        return stat.S_ISDIR(info.st_mode) and os.path.realpath(folder) == folder and info.st_dev == identity['device'] and info.st_ino == identity['inode']
+    except (OSError, ValueError, TypeError): return False
+
+
+def codex_scoped_readiness(row):
+    if platform.system() != 'Darwin': return False, 'Scoped Codex tasks require the verified macOS runtime.'
+    if pref('codexAuthMode', 'existing') != 'existing': return False, 'Choose Existing login for scoped Codex account tasks; API fallback is disabled.'
+    if not isinstance(row, dict) or not isinstance(row.get('folder'), str) or not os.path.isdir(row['folder']):
+        return False, 'Choose and confirm an existing project folder.'
+    try: codex_provider.CodexProvider.validate_scope(row['folder'])
+    except codex_provider.ProviderError as error: return False, str(error)
+    executable = shutil.which('codex')
+    if not executable: return False, 'Install the supported Codex CLI and sign in with your ChatGPT account.'
+    try:
+        version = subprocess.run([executable, '--version'], capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError): return False, 'Could not verify the installed Codex CLI version.'
+    match = re.fullmatch(r'codex-cli ([0-9]+\.[0-9]+\.[0-9]+)\s*', version.stdout)
+    if version.returncode or not match or match[1] not in CODEX_VERIFIED_CLI_VERSIONS:
+        return False, 'This Codex CLI version has not passed the scoped adapter checks; no task was started.'
+    return True, 'Version and project accepted; account, model and effective tool restrictions must pass adapter preflight.'
+
 
 
 def journal_verified_agent(row):
@@ -5277,8 +5305,13 @@ class Agents:
     def start_codex(self, row, text):
         """Run a scoped Codex session under the existing agent registry."""
         identifier = row['id']
-        if not CODEX_AGENT_READY:
-            self.finish(row, 'failed', 'Codex integration is not enabled until its approval controls are complete.'); return
+        if not trusted_native_context_parent() or not row.get('codexClientRequest'):
+            self.finish(row, 'failed', 'Start this Codex task from the confirmed native project form.'); return
+        if not codex_project_matches(row.get('folder'), row.get('codexProjectIdentity')):
+            self.finish(row, 'failed', 'The confirmed project folder changed or is unavailable.'); return
+        ready, reason = codex_scoped_readiness(row)
+        if not ready:
+            self.finish(row, 'failed', reason); return
         if not row.get('folder'):
             self.finish(row, 'failed', 'Choose and confirm the project folder before starting Codex.'); return
         if identifier in self.codex_sessions:
@@ -5308,7 +5341,7 @@ class Agents:
                 if row.get('status') == 'needs-you' and (row.get('question') or {}).get('_a') == token:
                     row.update(status='running', step='Working…', question=None); self.save(row)
             return pending['decision'] if answered else 'cancel'
-        auth_mode = pref('codexAuthMode', 'existing')
+        auth_mode = 'existing'  # This scoped path never falls back to API billing.
         def codex_api_key():
             helper = os.environ.get('ATTICUS_DEV_KEYCHAIN_HELPER', '')
             if not helper: raise keychain_store.KeychainError('The development Keychain helper is unavailable.')
@@ -5317,7 +5350,9 @@ class Agents:
         session = codex_provider.CodexProvider(emit=event, auth_mode=auth_mode, api_key_resolver=codex_api_key, approval_handler=approve)
         self.codex_sessions[identifier] = session
         def worker():
-            try: result = session.run(row.get('folder', ''), text, row.get('session'))
+            try:
+                if not codex_project_matches(row.get('folder'), row.get('codexProjectIdentity')): raise codex_provider.ProviderError('The confirmed project folder changed or is unavailable.')
+                result = session.run(row.get('folder', ''), text, row.get('session'), expected_identity=row.get('codexProjectIdentity'))
             except codex_provider.ProviderError as error: result = {'status': 'failed', 'result': str(error)}
             except Exception: result = {'status': 'failed', 'result': 'Codex adapter stopped unexpectedly. Inspect the project before retrying.'}
             with self.lock:
@@ -5742,12 +5777,25 @@ class Agents:
         with self.lock:
             if action == 'personal-open': self.personal_open(data)
             elif action == 'codex-start':
+                if not trusted_native_context_parent():
+                    self.emit({'event':'error', 'error':'Codex tasks require the native owner confirmation channel.'}); return
                 # Dedicated user action: project scope and task must be explicit.
-                folder, task = data.get('folder'), data.get('task')
-                if not isinstance(folder, str) or not os.path.isabs(folder) or not os.path.isdir(folder) or not isinstance(task, str) or not task.strip():
+                folder, task, request = data.get('folder'), data.get('task'), data.get('requestId')
+                if data.get('confirmed') is not True or not isinstance(request, str) or not re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}', request):
+                    self.emit({'event':'error', 'error':'Confirm project scope before starting Codex.'}); return
+                if not isinstance(folder, str) or not os.path.isabs(folder) or not os.path.isdir(folder) or not isinstance(task, str) or not task.strip() or len(task) > 4000:
                     self.emit({'event': 'error', 'error': 'Choose an existing project folder and provide a task.'}); return
+                folder, task = os.path.realpath(folder), task.strip()
+                identity = data.get('folderIdentity')
+                if not codex_project_matches(folder, identity):
+                    self.emit({'event':'error', 'error':'The confirmed project folder changed or is unavailable.'}); return
+                existing = next((r for r in self.rows.values() if r.get('codexClientRequest') == request), None)
+                if existing:
+                    if existing.get('folder') != folder or existing.get('brief') != task:
+                        self.emit({'event':'error', 'error':'Request identifier conflict; no task was started.'}); return
+                    self.emit({'event':'state', 'agent':existing}); return
                 row = self.new()
-                row.update(provider='codex', folder=os.path.realpath(folder), title=agent_title(task), brief=task, context='', status='offered')
+                row.update(provider='codex', folder=folder, title=agent_title(task), brief=task, context='', status='offered', codexClientRequest=request, codexProjectIdentity=identity)
                 self.rows[row['id']] = row; self.save(row); self.start(row['id'], task, evidence=task)
             elif action == 'select-project' and identifier in self.rows:
                 row, folder = self.rows[identifier], data.get('folder')
@@ -5767,6 +5815,7 @@ class Agents:
                                                               'routine': routine['id']})
                     row['routine'] = routine['id']; self.save(row)
             elif action in ('start', 'followup') and identifier in self.rows:
+                if self.rows[identifier].get('provider') == 'codex' and not trusted_native_context_parent(): return
                 if action == 'followup' and data.get('text'): self.rows[identifier].setdefault('timeline', []).append({'user': data['text']})
                 self.start(identifier, data.get('text'), evidence=data.get('text') or None if action == 'followup' else None)
             elif action == 'verify-result' and identifier in self.rows:
@@ -5812,6 +5861,7 @@ class Agents:
                 if data.get('question') != question.get('_a'): return
                 answer = str(data.get('answer', 'n'))
                 if row.get('provider') == 'codex':
+                    if not trusted_native_context_parent(): return
                     pending = self.codex_approvals.get(identifier)
                     if pending and pending['token'] == data.get('question') and not pending.get('answered'):
                         pending['answered'] = True

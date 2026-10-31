@@ -5,6 +5,7 @@ No server-requested permission is granted by this adapter.
 """
 import json
 import os
+import stat
 import queue
 import re
 import subprocess
@@ -63,6 +64,7 @@ class CodexProvider:
         self._write_lock = threading.RLock()
         self._sequence = 0
         self._stopped = False
+        self._scope_binding = None
         self.approval_denied = False
         self.text = ''
         self._completed = None
@@ -71,6 +73,9 @@ class CodexProvider:
 
     def _send(self, payload):
         with self._write_lock:
+            if payload.get('method') in ('thread/start', 'thread/resume', 'turn/start'):
+                if self._stopped: raise ProviderError('Codex task was cancelled before dispatch.')
+                self._verify_project()
             if not self.process or self.process.poll() is not None:
                 raise ProviderError('Codex app-server stopped.')
             try:
@@ -100,8 +105,11 @@ class CodexProvider:
                  '-c', 'web_search="disabled"', '-c', 'apps._default.enabled=false']
         if override:
             for item in ([override] if isinstance(override, str) else override): args += ['-c', item]
-        self.process = self.popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, text=True, bufsize=1, env=environment)
+        with self._write_lock:
+            if self._stopped: raise ProviderError('Codex task was cancelled before launch.')
+            if self._scope_binding is not None: self._verify_project()
+            self.process = self.popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                      stderr=subprocess.DEVNULL, text=True, bufsize=1, env=environment)
         threading.Thread(target=self._reader, args=(self.process, self._messages), daemon=True).start()
         self._request('initialize', {'clientInfo': {'name': 'atticus', 'version': '0.1.0'}, 'capabilities': {'experimentalApi': True}})
         self._send({'method': 'initialized', 'params': {}})
@@ -278,9 +286,30 @@ class CodexProvider:
                     raise ProviderError('The project overlaps protected account or Atticus state.')
         return os.path.realpath(cwd)
 
-    def run(self, cwd, task, thread_id=None):
-        self.validate_scope(cwd)
+    def _verify_project(self):
+        binding = self._scope_binding
+        if not binding: raise ProviderError('No confirmed project identity; no task was started.')
+        path, device, inode = binding
+        try:
+            info = os.stat(path, follow_symlinks=False)
+            if os.path.realpath(path) != path or not stat.S_ISDIR(info.st_mode) or (info.st_dev, info.st_ino) != (device, inode):
+                raise ProviderError('The confirmed project folder changed or is unavailable.')
+        except (OSError, ValueError, TypeError) as exc:
+            raise ProviderError('The confirmed project folder changed or is unavailable.') from exc
+
+    def run(self, cwd, task, thread_id=None, expected_identity=None):
+        scoped = self.validate_scope(cwd)
         if not isinstance(task, str) or not task.strip(): raise ProviderError('A task description is required.')
+        try:
+            info = os.stat(scoped, follow_symlinks=False)
+        except OSError as exc: raise ProviderError('The confirmed project folder is unavailable.') from exc
+        if expected_identity is None: expected_identity = {'device':info.st_dev, 'inode':info.st_ino}
+        if not isinstance(expected_identity,dict) or set(expected_identity) != {'device','inode'} or any(type(expected_identity[k]) is not int for k in expected_identity):
+            raise ProviderError('The confirmed project identity is invalid.')
+        self._scope_binding = (scoped, expected_identity['device'], expected_identity['inode'])
+        with self._write_lock:
+            if self._stopped: raise ProviderError('Codex task was cancelled before launch.')
+            self._verify_project()
         try:
             if self.auth_mode not in ('existing', 'api_key'):
                 raise ProviderError('Choose an available Codex authentication mode.')
@@ -309,12 +338,18 @@ class CodexProvider:
             if overrides:
                 self.close(); self._launch(environment, overrides)
             enabled_skills = self._preflight(os.path.realpath(cwd))
+            with self._write_lock:
+                if self._stopped: raise ProviderError('Codex task was cancelled before launch.')
+                self._verify_project()
             if enabled_skills:
                 # These overrides belong only to this child process.
                 overrides.append('skills.config=[' + ','.join('{path=' + json.dumps(path) + ',enabled=false}' for path in enabled_skills) + ']')
                 self.close(); self._launch(environment, overrides)
                 if self._preflight(os.path.realpath(cwd)):
                     raise ProviderError('Inherited Codex skills remain enabled; no task was started.')
+                with self._write_lock:
+                    if self._stopped: raise ProviderError('Codex task was cancelled before launch.')
+                    self._verify_project()
             # Select the account picker's explicit default rather than inheriting
             # an unrelated global model. Listing is not proof of entitlement.
             if self.auth_mode == 'existing':

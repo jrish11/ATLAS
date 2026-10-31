@@ -1,4 +1,4 @@
-"""Tests a proposed backend integration without changing production source."""
+"""Tests the integrated scoped Codex readiness policy and deduplication."""
 import ast
 from pathlib import Path
 import os
@@ -18,8 +18,8 @@ class ProposedReadinessTests(unittest.TestCase):
   import codex_provider
   ns={'platform':Mock(system=Mock(return_value='Darwin')),'pref':Mock(return_value='existing'),
       'os':Mock(path=Mock(isdir=Mock(return_value=True))), 'codex_provider':Mock(CodexProvider=Mock(validate_scope=Mock()),ProviderError=codex_provider.ProviderError),
-      'shutil':Mock(which=Mock(return_value='/synthetic/codex')),'subprocess':Mock(run=Mock(return_value=types.SimpleNamespace(returncode=0,stdout='codex-cli 0.155.1\n')),SubprocessError=subprocess.SubprocessError),'re':re}
-  exec(compile((FIX/'readiness-policy.py').read_text(),str(FIX/'readiness-policy.py'),'exec'),ns)
+      'stat':__import__('stat'),'shutil':Mock(which=Mock(return_value='/synthetic/codex')),'subprocess':Mock(run=Mock(return_value=types.SimpleNamespace(returncode=0,stdout='codex-cli 0.155.1\n')),SubprocessError=subprocess.SubprocessError),'re':re}
+  source=(ROOT/'atticus.py').read_text(); code=source[source.index('CODEX_VERIFIED_CLI_VERSIONS ='):source.index('def journal_verified_agent',source.index('CODEX_VERIFIED_CLI_VERSIONS ='))]; exec(compile(code,'production-readiness','exec'),ns)
   return ns
 
  def test_known_version_is_only_provisional_and_adapter_still_required(self):
@@ -42,18 +42,16 @@ class ProposedReadinessTests(unittest.TestCase):
   n=self.namespace();self.assertFalse(n['codex_scoped_readiness']({})[0])
   n=self.namespace();n['subprocess'].run.side_effect=subprocess.TimeoutExpired('codex',3);self.assertFalse(n['codex_scoped_readiness']({'folder':'/fixture'})[0])
 
- def test_proposed_action_requires_confirmation_and_deduplicates_after_restart(self):
+ def test_action_requires_confirmation_and_deduplicates_after_restart(self):
   # Apply only to a temporary copy. Execute the exact proposed command method
   # against a fake registry/launcher; never import or run the candidate app.
   with tempfile.TemporaryDirectory(prefix='atticus-patch-test-') as d:
-   p=Path(d,'atticus.py');p.write_text((ROOT/'atticus.py').read_text())
-   r=subprocess.run(['/usr/bin/patch','--quiet',str(p),str(FIX/'backend-readiness.patch')],capture_output=True,text=True,timeout=10)
-   self.assertEqual(r.returncode,0,r.stderr+r.stdout)
+   p=ROOT/'atticus.py'
    tree=ast.parse(p.read_text());cls=next(x for x in tree.body if isinstance(x,ast.ClassDef) and x.name=='Agents');method=next(x for x in cls.body if isinstance(x,ast.FunctionDef) and x.name=='command')
    fake=ast.ClassDef(name='Fixture',bases=[],keywords=[],body=[method],decorator_list=[])
-   ns={'re':re,'os':os,'agent_title':lambda text:text[:20]};exec(compile(ast.fix_missing_locations(ast.Module(body=[fake],type_ignores=[])),'proposed-command','exec'),ns)
+   ns={'re':re,'os':os,'agent_title':lambda text:text[:20], 'trusted_native_context_parent':lambda:True,'codex_project_matches':lambda folder,identity:True};exec(compile(ast.fix_missing_locations(ast.Module(body=[fake],type_ignores=[])),'proposed-command','exec'),ns)
    manager=ns['Fixture']();manager.lock=threading.RLock();manager.rows={};manager.emit=Mock();manager.save=Mock();manager.start=Mock();manager.new=Mock(return_value={'id':'fixture'})
-   data={'action':'codex-start','folder':d,'task':'inspect','requestId':'12345678-1234-4123-8123-123456789abc','confirmed':True}
+   data={'action':'codex-start','folder':d,'task':'inspect','requestId':'12345678-1234-4123-8123-123456789abc','confirmed':True,'folderIdentity':{'device':1,'inode':2}}
    manager.command({**data,'confirmed':False});manager.start.assert_not_called()
    manager.command(data);manager.start.assert_called_once()
    manager.command(data);manager.start.assert_called_once()

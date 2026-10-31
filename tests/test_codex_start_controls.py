@@ -49,7 +49,7 @@ $('codex-folder').value='/fixture';$('codex-task').value='<script>untrusted text
 submitCodexTask();submitCodexTask();assert.equal(posts.length,1);assert.equal(posts[0].action,'codex-start');assert.equal(posts[0].task,'<script>untrusted text</script>');assert.equal($('codex-submit').disabled,true);
 codexObserve([{provider:'codex',folder:'/other',brief:posts[0].task,created:Date.now()/1000}]);assert.ok(codexPending);
 codexObserve([{provider:'codex',folder:'/fixture',brief:posts[0].task,created:0}]);assert.ok(codexPending);
-codexObserve([{provider:'codex',folder:'/fixture',brief:posts[0].task,created:Date.now()/1000}]);assert.equal(codexPending,null);assert.equal($('new-codex').disabled,false);assert.equal(posts.length,1);
+codexObserve([{provider:'codex',folder:'/fixture',brief:posts[0].task,codexClientRequest:posts[0].requestId,created:Date.now()/1000}]);assert.equal(codexPending,null);assert.equal($('new-codex').disabled,false);assert.equal(posts.length,1);
 ''')
 
  def test_continue_rejects_inflight_review_and_repeated_actions(self):

@@ -4407,7 +4407,7 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
     }
     func start() {
         guard process == nil else { return }
-        let p = py(["--agents"]), out = Pipe(), inp = Pipe(); p.standardOutput = out; p.standardInput = inp; p.standardError = FileHandle.nullDevice
+        let p = py(["--agents"], ["ATTICUS_UI":"1"]), out = Pipe(), inp = Pipe(); p.standardOutput = out; p.standardInput = inp; p.standardError = FileHandle.nullDevice
         fcntl(inp.fileHandleForWriting.fileDescriptor,F_SETNOSIGPIPE,1)
         process = p; input = inp.fileHandleForWriting; output = out
         out.fileHandleForReading.readabilityHandler = { [weak self] file in
@@ -4858,7 +4858,22 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
             alert.informativeText = "Confirm only after checking the work. If activity logging is enabled, Atticus will add its title to your selected vault."
             alert.addButton(withTitle: "I verified it"); alert.addButton(withTitle: "Cancel")
             if alert.runModal() == .alertFirstButtonReturn { send(["action":"verify-result", "id":id, "confirmed":true]) }
+        case "codex-start":
+            guard surface == "view", body["confirmed"] as? Bool == true, let folder=body["folder"] as? String, folder.hasPrefix("/"), let task=body["task"] as? String, !task.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, task.count<=4000, body["requestId"] is String else {return}
+            let canonical=URL(fileURLWithPath:folder).resolvingSymlinksInPath().standardizedFileURL.path
+            guard let info=try? FileManager.default.attributesOfItem(atPath:canonical),let device=info[.systemNumber] as? NSNumber,let inode=info[.systemFileNumber] as? NSNumber,info[.type] as? FileAttributeType == .typeDirectory else {return}
+            let alert=NSAlert();alert.messageText="Start this Codex task?";alert.informativeText="Project: "+canonical+"\n\nTask: "+task+"\n\nCodex may read and change files in this project. Requests to expand permissions need your approval. Your existing ChatGPT account is used."
+            alert.addButton(withTitle:"Start Codex task");alert.addButton(withTitle:"Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn,URL(fileURLWithPath:folder).resolvingSymlinksInPath().standardizedFileURL.path==canonical,let now=try? FileManager.default.attributesOfItem(atPath:canonical),(now[.systemNumber] as? NSNumber)==device,(now[.systemFileNumber] as? NSNumber)==inode,now[.type] as? FileAttributeType == .typeDirectory else {return}
+            var confirmed=body;confirmed["folder"]=canonical;confirmed["folderIdentity"]=["device":device,"inode":inode];send(confirmed)
         case "answer":
+            if rows[id]?["provider"] as? String == "codex", body["answer"] as? String == "y" {
+                guard let q=rows[id]?["question"] as? [String:Any],let token=q["_a"] as? String,token==body["question"] as? String, let details=q["cmd"] as? String else {return}
+                let alert=NSAlert();alert.messageText="Allow this Codex action?";alert.informativeText=details;alert.addButton(withTitle:"Allow");alert.addButton(withTitle:"Deny")
+                let decision=alert.runModal()
+                guard let now=rows[id]?["question"] as? [String:Any],now["_a"] as? String == token,now["cmd"] as? String == details,rows[id]?["status"] as? String == "needs-you" else {return}
+                var reply=body;reply["answer"] = decision == .alertFirstButtonReturn ? "y" : "n";send(reply);return
+            }
             send(body)
             if body["answer"] as? String == "y", let q = rows[id]?["question"] as? [String:Any], q["need"] != nil, q["_a"] as? String == body["question"] as? String { allow(id,q) }
         default: send(body)

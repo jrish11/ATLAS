@@ -370,7 +370,7 @@
     <div id="codexKeychainSection" hidden>
       <h3>Codex authentication</h3>
       <div class="group">
-        <div class="row"><div class="t"><b>Codex account</b><span>Scoped Codex tasks use your existing account login. The foreground OpenAI API key is separate; Codex live tasks remain disabled in this build.</span></div><div class="seg" data-k="codexAuthMode"><button data-v="existing">Existing login</button><button data-v="api_key">API key</button></div></div>
+        <div class="row"><div class="t"><b>Codex account</b><span>Scoped Codex tasks require your existing account login, a confirmed project and a supported CLI. The foreground OpenAI API key is separate. Live task execution has not been verified.</span></div><div class="seg" data-k="codexAuthMode"><button data-v="existing">Existing login</button><button data-v="api_key" disabled title="Scoped Codex tasks require an existing account login">API key</button></div></div>
         <div class="row"><div class="t"><b>Codex API key</b><span id="codexKeyStatus"></span></div><input class="field" id="codexApiKey" type="password" placeholder="Set or replace key" aria-label="Codex API key"></div>
         <div class="row"><div class="t"><b>Codex key storage</b></div><button class="btn" id="migrateLegacyCodexKey" hidden>Move existing key…</button><button class="btn" id="discardLegacyCodexKey" hidden>Remove old key…</button><button class="btn" id="deleteCodexApiKey" hidden>Remove key…</button></div>
       <div class="row" id="bothLegacyKeys" hidden><div class="t"><b>Two old plaintext keys</b><span>Choose how to resolve both keys.</span></div><button class="btn" id="migrateBothProviderKeys">Move both…</button><button class="btn" id="discardBothProviderKeys">Remove both…</button></div>

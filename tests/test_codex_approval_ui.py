@@ -72,7 +72,7 @@ console.log(JSON.stringify({posts,agentId:id,token}));
 
  def test_manager_denial_cancellation_and_restart_are_fail_closed(self):
   import atticus
-  with tempfile.TemporaryDirectory(prefix='atticus-approval-manager-') as d, patch.object(atticus,'DIR',d), patch.object(atticus,'pref',side_effect=lambda k,default:default), patch.object(atticus,'close_agent_window'):
+  with tempfile.TemporaryDirectory(prefix='atticus-approval-manager-') as d, patch.object(atticus,'DIR',d), patch.object(atticus,'pref',side_effect=lambda k,default:default), patch.object(atticus,'close_agent_window'), patch.object(atticus,'trusted_native_context_parent',return_value=True):
    manager=atticus.Agents(emit=lambda _:None,launch=Mock()); row=manager.new(); row.update(provider='codex',status='needs-you',question={'_a':'token-1'},brief='fixture')
    manager.rows[row['id']]=row; session=Mock(); manager.codex_sessions[row['id']]=session
    pending={'token':'token-1','event':threading.Event(),'decision':'cancel'};manager.codex_approvals[row['id']]=pending
@@ -92,7 +92,7 @@ console.log(JSON.stringify({posts,agentId:id,token}));
 
  def check_real_manager(self, root, answers, stop, result):
   import atticus
-  with patch.object(atticus,'DIR',str(root/'manager')),patch.object(atticus,'pref',side_effect=lambda k,d:d),patch.object(atticus,'close_agent_window'):
+  with patch.object(atticus,'DIR',str(root/'manager')),patch.object(atticus,'pref',side_effect=lambda k,d:d),patch.object(atticus,'close_agent_window'), patch.object(atticus,'trusted_native_context_parent',return_value=True):
    manager=atticus.Agents(emit=lambda _:None, launch=lambda _:None)
    self.addCleanup(manager.close)
    row=manager.new();row.update(id=result['agentId'],provider='codex',status='needs-you',question={'_a':result['token']})

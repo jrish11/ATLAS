@@ -14,17 +14,17 @@ class FakeTimer:
 class FakeProvider:
  instances=[]; response={}
  def __init__(self,**kw):self.release=threading.Event();self.interrupted=threading.Event();self.closed=threading.Event();self.response=dict(self.response);self.instances.append(self)
- def run(self,*args):self.release.wait(3);return self.response
+ def run(self,*args,**kwargs):self.release.wait(3);return self.response
  def interrupt(self):self.interrupted.set()
  def close(self):self.closed.set();self.release.set()
 class CancellationTests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
-  self.stack=[patch.object(a,'DIR',self.tmp.name),patch.object(a,'CODEX_AGENT_READY',True),patch.object(a,'pref',side_effect=lambda k,d:d),patch.object(a,'close_agent_window'),patch.object(a.codex_provider,'CodexProvider',FakeProvider),patch.object(a.threading,'Timer',FakeTimer)]
+  self.stack=[patch.object(a,'DIR',self.tmp.name),patch.object(a,'trusted_native_context_parent',return_value=True),patch.object(a,'codex_scoped_readiness',return_value=(True,'')),patch.object(a,'codex_project_matches',return_value=True),patch.object(a,'pref',side_effect=lambda k,d:d),patch.object(a,'close_agent_window'),patch.object(a.codex_provider,'CodexProvider',FakeProvider),patch.object(a.threading,'Timer',FakeTimer)]
   for x in self.stack:x.start();self.addCleanup(x.stop)
   FakeTimer.timers=[];FakeProvider.instances=[]
   self.events=[];self.m=a.Agents(emit=self.events.append,launch=Mock());self.m.drain=Mock();self.addCleanup(self.m.close)
-  self.row=self.m.new();self.row.update(provider='codex',status='running',brief='fixture',folder=self.tmp.name)
+  self.row=self.m.new();self.row.update(provider='codex',status='running',brief='fixture',folder=self.tmp.name,codexClientRequest='12345678-1234-4123-8123-123456789abc')
   self.m.rows[self.row['id']]=self.row;self.m.save(self.row)
  def wait(self,predicate):
   end=time.monotonic()+2
